@@ -213,14 +213,18 @@ for _, path in repos:
     ins_7d += i
     dels_7d += d
 
-# ADR-009 (WP-109 Ф3): commits_today/7d/30d теперь агрегируются
-# из user_events через dt_sync. Здесь -- только уникальные поля
-# (repos_active, files_changed, lines), которых нет в sync-iwe.
+# ADR-009 (WP-109 Ф3) REVERT (6 май 2026): commits возвращены в локальный сбор.
+# GitHub App webhooks для IWE-репо не доходят → commits_30d = 0 через dt_sync.
+# Fallback: считаем из локального git log. Если webhook pipeline заработает —
+# dt_calc.py возьмёт max(local, webhook) или webhook-значение приоритетом.
 result = {
     'repos_active_7d': repos_7d[:15],
     'files_changed_7d': files_7d,
     'lines_added_7d': ins_7d,
     'lines_removed_7d': dels_7d,
+    'commits_today': commits_today,
+    'commits_7d': commits_7d,
+    'commits_30d': commits_30d,
 }
 print(json.dumps(result))
 " 2>/dev/null || echo "{}"
