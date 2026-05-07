@@ -332,50 +332,13 @@ print(json.dumps(result))
 }
 
 # ============================================================
-# 5. Scheduler Health
+# 5. Scheduler Health — REMOVED 2026-05-07
 # ============================================================
-
-collect_health() {
-    local STATE_DIR="$HOME/.local/state/exocortex"
-    python3 -c "
-import json, os
-from datetime import datetime
-
-state_dir = '$STATE_DIR'
-today = datetime.now().strftime('%Y-%m-%d')
-health = 'green'
-uptime = 0
-
-if os.path.isdir(state_dir):
-    markers = [f for f in os.listdir(state_dir) if not f.startswith('.')]
-    dates = set()
-    for m in markers:
-        parts = m.rsplit('-', 3)
-        if len(parts) >= 3:
-            date_part = '-'.join(parts[-3:])
-            if len(date_part) == 10:
-                dates.add(date_part)
-    uptime = len(dates)
-
-    # Check if key tasks ran today
-    expected = ['code-scan', 'strategist-morning']
-    missing = []
-    for task in expected:
-        found = any(task in m and today in m for m in markers)
-        if not found:
-            missing.append(task)
-    if len(missing) > 0:
-        health = 'yellow'
-    if len(missing) > 1:
-        health = 'red'
-
-result = {
-    'scheduler_health': health,
-    'exocortex_uptime_days': uptime,
-}
-print(json.dumps(result))
-" 2>/dev/null || echo "{}"
-}
+# Функция collect_health() читала маркеры старого монолитного scheduler.sh
+# (~/.local/state/exocortex/), но scheduler отключён 10 марта 2026.
+# Маркеры code-scan/strategist-morning больше не пишутся → health всегда red.
+# Удалено вместе с блоком «Scheduler» в дашборде DayPlan (WP-7 SCHED-3).
+# Per-role launchd агенты пишут собственные логи в ~/logs/{strategist,pulse,...}/.
 
 # ============================================================
 # 6. Multiplier & Budgets (from DayPlan)
@@ -843,8 +806,6 @@ log "Collecting Claude sessions..."
 SESSIONS_JSON=$(collect_sessions)
 log "Collecting WP stats..."
 WP_JSON=$(collect_wp)
-log "Collecting scheduler health..."
-HEALTH_JSON=$(collect_health)
 log "Collecting multiplier data..."
 MULT_JSON=$(collect_multiplier)
 log "Collecting registry stats..."
@@ -864,7 +825,6 @@ waka = json.loads('''$WAKA_JSON''')
 git = json.loads('''$GIT_JSON''')
 sessions = json.loads('''$SESSIONS_JSON''')
 wp = json.loads('''$WP_JSON''')
-health = json.loads('''$HEALTH_JSON''')
 mult = json.loads('''$MULT_JSON''')
 registry = json.loads('''$REGISTRY_JSON''')
 pack = json.loads('''$PACK_JSON''')
@@ -877,7 +837,7 @@ p_eco = json.loads('''$plugin_eco_arr''')
 p_know = json.loads('''$plugin_know_arr''')
 
 # 2_7_iwe: core + plugins
-iwe = {**git, **sessions, **wp, **health, **mult, **registry, **sched}
+iwe = {**git, **sessions, **wp, **mult, **registry, **sched}
 for p in p_iwe:
     iwe.update(p)
 
