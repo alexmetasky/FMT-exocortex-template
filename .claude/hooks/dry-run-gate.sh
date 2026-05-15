@@ -21,26 +21,28 @@ if ! command -v jq >/dev/null 2>&1; then
     exit 2
 fi
 
-# SESSION_ID — от Claude Code или fallback
-SID="${CLAUDE_SESSION_ID:-noid}"
-SENTINEL="/tmp/iwe-dry-run-${SID}.flag"
-
-# Если sentinel не существует — dry-run неактивен, allow всё
-[ ! -f "$SENTINEL" ] && exit 0
-
-# TTL: проверить mtime, удалить и allow если старше 600s
+# Найти любой активный sentinel (не только текущей сессии — субагент имеет другой SID)
 NOW=$(date +%s)
-case "$(uname)" in
-    Darwin) MTIME=$(stat -f %m "$SENTINEL" 2>/dev/null) ;;
-    *)      MTIME=$(stat -c %Y "$SENTINEL" 2>/dev/null) ;;
-esac
-if [ -n "$MTIME" ]; then
-    AGE=$((NOW - MTIME))
-    if [ "$AGE" -gt 600 ]; then
-        rm -f "$SENTINEL" 2>/dev/null
-        exit 0
+SENTINEL=""
+for f in /tmp/iwe-dry-run-*.flag; do
+    [ -f "$f" ] || continue
+    case "$(uname)" in
+        Darwin) MTIME=$(stat -f %m "$f" 2>/dev/null) ;;
+        *)      MTIME=$(stat -c %Y "$f" 2>/dev/null) ;;
+    esac
+    if [ -n "$MTIME" ]; then
+        AGE=$((NOW - MTIME))
+        if [ "$AGE" -gt 600 ]; then
+            rm -f "$f" 2>/dev/null
+            continue
+        fi
     fi
-fi
+    SENTINEL="$f"
+    break
+done
+
+# Если нет валидного sentinel — dry-run неактивен, allow всё
+[ -z "$SENTINEL" ] && exit 0
 
 # Прочитать tool_name и tool_input из stdin
 INPUT=$(cat)
