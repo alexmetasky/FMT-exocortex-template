@@ -226,7 +226,7 @@ if [ -f "$DRIFT_SCRIPT" ]; then
     set -e
     if [ $DRIFT_RC -ne 0 ]; then
         echo ""
-        echo "_iwe-drift.sh exit code: $DRIFT_RC_"
+        echo "_iwe-drift.sh exit code: $DRIFT_RC"
     fi
 else
     echo "❌ \`scripts/iwe-drift.sh\` не найден — drift-сверка пропущена"
