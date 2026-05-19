@@ -51,12 +51,19 @@ if $VALIDATE_ONLY; then
     echo "=========================================="
     echo ""
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    ENV_FILE="$SCRIPT_DIR/.exocortex.env"
+    # WP-273 Этап 2: .exocortex.env живёт в $WORKSPACE_DIR/ (родитель FMT-template),
+    # а не внутри FMT (раньше). Сначала проверяем актуальное место, потом legacy fallback.
+    WORKSPACE_GUESS="$(dirname "$SCRIPT_DIR")"
+    if [ -f "$WORKSPACE_GUESS/.exocortex.env" ]; then
+        ENV_FILE="$WORKSPACE_GUESS/.exocortex.env"
+    else
+        ENV_FILE="$SCRIPT_DIR/.exocortex.env"  # legacy fallback (pre-WP-273)
+    fi
     ERRORS=0
 
     # Load .exocortex.env
     if [ -f "$ENV_FILE" ]; then
-        echo "[1/4] Env-конфиг... ✓ .exocortex.env найден"
+        echo "[1/4] Env-конфиг... ✓ .exocortex.env найден ($ENV_FILE)"
         # Safe read: grep KEY=VALUE, no eval/source (values may contain spaces)
         _env_get() { grep "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d'=' -f2-; }
         # Check required keys
@@ -556,6 +563,11 @@ elif ! command -v launchctl >/dev/null 2>&1; then
     echo "  См. $TEMPLATE_DIR/roles/ROLE-CONTRACT.md"
 else
     echo "[5/6] Installing roles..."
+
+    # Source ~/.iwe-paths — гарантирует IWE_RUNTIME / IWE_WORKSPACE / IWE_TEMPLATE
+    # в env для role install.sh (тот же паттерн что в update.sh:836).
+    # Без этого install.sh падает в legacy fallback и видит {{плейсхолдеры}}.
+    [ -f "$HOME/.iwe-paths" ] && . "$HOME/.iwe-paths"
 
     MANUAL_ROLES=()
 

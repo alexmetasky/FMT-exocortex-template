@@ -4,7 +4,7 @@
 # see DP.M.010, DP.ROLE.037
 #
 # Использование:
-#   bash create-wp.sh --title "Название" --budget 5h --priority P3 [--slug slug] [--repo "репо"]
+#   bash create-wp.sh --title "Название" --budget 5h --priority P3 [--slug slug] [--repo "репо"] [--related "WP-150:dependency,WP-167:продукт"]
 #   bash create-wp.sh --title "Название" --budget 5h --priority P3 --no-consent-check
 #
 # Предусловие: consent state file должен существовать:
@@ -27,6 +27,7 @@ BUDGET=""
 PRIORITY="P3"
 SLUG=""
 REPO=""
+RELATED=""
 SKIP_CONSENT=0
 
 while [[ $# -gt 0 ]]; do
@@ -36,6 +37,7 @@ while [[ $# -gt 0 ]]; do
     --priority) PRIORITY="$2"; shift 2 ;;
     --slug)     SLUG="$2";     shift 2 ;;
     --repo)     REPO="$2";     shift 2 ;;
+    --related)  RELATED="$2";  shift 2 ;;
     --no-consent-check) SKIP_CONSENT=1; shift ;;
     *) echo "Неизвестный флаг: $1" >&2; exit 1 ;;
   esac
@@ -43,7 +45,7 @@ done
 
 # --- Валидация ---
 if [[ -z "$TITLE" || -z "$BUDGET" ]]; then
-  echo "Использование: $0 --title \"Название\" --budget 5h [--priority P3] [--slug slug] [--repo репо]" >&2
+  echo "Использование: $0 --title \"Название\" --budget 5h [--priority P3] [--slug slug] [--repo репо] [--related \"WP-NNN:тип\"]" >&2
   exit 1
 fi
 
@@ -116,6 +118,21 @@ echo "🚀 Создаю WP-${WP_NUM}: $TITLE"
 echo "   Файл: inbox/WP-${WP_NUM}-${SLUG}.md"
 echo "   Бюджет: $BUDGET | Приоритет: $PRIORITY"
 
+# --- Сформировать строки таблицы связок ---
+RELATED_ROWS="| — | — | — | нет связок |"
+if [[ -n "$RELATED" ]]; then
+  RELATED_ROWS=""
+  IFS=',' read -ra REL_ITEMS <<< "$RELATED"
+  for rel_item in "${REL_ITEMS[@]}"; do
+    rel_item="${rel_item# }"
+    rel_wp="${rel_item%%:*}"
+    rel_type="${rel_item#*:}"
+    [[ "$rel_wp" == "$rel_type" ]] && rel_type="—"
+    RELATED_ROWS+="| ${rel_wp} | 🟡 | ${rel_type} | — |
+"
+  done
+fi
+
 # --- Шаг 1: context file ---
 echo ""
 echo "1/4 context file..."
@@ -141,6 +158,12 @@ related: []
 ## Артефакт
 
 [Конкретный результат — существительное-артефакт с критериями]
+
+## Связки с РП
+
+| РП | Сила | Тип | Что передаётся |
+|----|------|-----|----------------|
+${RELATED_ROWS}
 
 ## Фазы реализации
 
