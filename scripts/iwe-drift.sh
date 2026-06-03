@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# routing: helper  skill=iwe-rules-review  called-by=haiku  deterministic=true
+# see DP.SC.159, DP.ROLE.059
 # iwe-drift.sh — MVP drift-отчёт по .claude/sync-manifest.yaml
 #
 # WP-217 Ф3b, черновик 2026-04-10.
@@ -70,18 +72,9 @@ dir_newest_mtime_days_ago() {
         return
     fi
     local newest
-    case "$(uname)" in
-        Darwin)
-            newest=$(find "$dir" -type f -not -path '*/.git/*' -print0 2>/dev/null \
-                | xargs -0 stat -f %m 2>/dev/null \
-                | sort -nr | head -1)
-            ;;
-        *)
-            newest=$(find "$dir" -type f -not -path '*/.git/*' -print0 2>/dev/null \
-                | xargs -0 stat -c %Y 2>/dev/null \
-                | sort -nr | head -1)
-            ;;
-    esac
+    newest=$(find "$dir" -type f -not -path '*/.git/*' -print0 2>/dev/null \
+        | xargs -0 stat -f %m 2>/dev/null \
+        | sort -nr | head -1)
     if [ -z "${newest:-}" ]; then
         echo "-1"
         return

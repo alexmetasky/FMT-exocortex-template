@@ -49,6 +49,7 @@ FAIL_COUNT=0
 PASS_COUNT=0
 fail() { echo "  ❌ FAIL: $*" >&2; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 pass() { echo "  ✅ PASS: $*"; PASS_COUNT=$((PASS_COUNT + 1)); }
+warn() { echo "  ⚠️  WARN: $*" >&2; }
 
 echo "=========================================="
 echo "  Smoke Test: Fresh Install (WP-273 F)"
@@ -196,7 +197,7 @@ for dir in "$TEMPLATE_DIR"/.claude/*/; do
     [ -d "$dir" ] || continue
     dirname=$(basename "$dir")
     case "$dirname" in
-        projects|context-cache|logs) continue ;; # workspace-local / runtime-only, не propagate
+        projects|context-cache|logs|worktrees) continue ;; # workspace-local / runtime-only, не propagate
     esac
     if ! echo "$PATTERN_LINE" | grep -q "\.claude/$dirname/\*"; then
         MISSING_DIRS="$MISSING_DIRS $dirname"
@@ -429,7 +430,7 @@ for dir in "$TEMPLATE_DIR"/.claude/*/; do
     [ -d "$dir" ] || continue
     dirname=$(basename "$dir")
     case "$dirname" in
-        projects|context-cache|logs|settings.json) continue ;; # workspace-local / runtime-only
+        projects|context-cache|logs|settings.json|worktrees) continue ;; # workspace-local / runtime-only
     esac
     if ! echo "$SUBDIR_LINE" | grep -qw "$dirname"; then
         SETUP8A_MISS="$SETUP8A_MISS $dirname"

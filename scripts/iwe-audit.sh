@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# routing: helper  skill=audit-installation  called-by=haiku  deterministic=true
+# see DP.SC.159, DP.ROLE.059
 # iwe-audit.sh — оркестратор аудита инсталляции IWE
 #
 # WP-265 Ф2, 2026-04-26.
@@ -181,22 +183,21 @@ fi
 # params.yaml — конфиг
 emit_inventory_row "params.yaml" 1 ""
 
-# Governance-репо (DS-strategy или переопределённый через GOVERNANCE_DIR)
-GOVERNANCE_DIR="${GOVERNANCE_DIR:-$IWE_ROOT/DS-strategy}"
-GOVERNANCE_NAME="$(basename "$GOVERNANCE_DIR")"
-DS_DIR="$GOVERNANCE_DIR"
+# Governance-репо — директория с .git
+GOV_REPO="${IWE_GOVERNANCE_REPO:-DS-strategy}"
+DS_DIR="$IWE_ROOT/$GOV_REPO"
 TOTAL=$((TOTAL + 1))
 if [ -d "$DS_DIR" ]; then
     if [ -d "$DS_DIR/.git" ]; then
         FOUND=$((FOUND + 1))
-        printf "| \`%s\` | %s | %s |\n" "${GOVERNANCE_NAME}/" "✅" "git-репо (is_git=true)"
+        printf "| \`%s\` | %s | %s |\n" "$GOV_REPO/" "✅" "git-репо (is_git=true)"
     else
         OPTIONAL_MISSING=$((OPTIONAL_MISSING + 1))
-        printf "| \`%s\` | %s | %s |\n" "${GOVERNANCE_NAME}/" "⚠️" "директория есть, но не git-репо"
+        printf "| \`%s\` | %s | %s |\n" "$GOV_REPO/" "⚠️" "директория есть, но не git-репо"
     fi
 else
     CRITICAL_MISSING=$((CRITICAL_MISSING + 1))
-    printf "| \`%s\` | %s | %s |\n" "${GOVERNANCE_NAME}/" "❌" "директория не найдена"
+    printf "| \`%s\` | %s | %s |\n" "$GOV_REPO/" "❌" "директория не найдена"
 fi
 
 echo ""
@@ -226,20 +227,20 @@ if [ -f "$DRIFT_SCRIPT" ]; then
     set -e
     if [ $DRIFT_RC -ne 0 ]; then
         echo ""
-        echo "_iwe-drift.sh exit code: $DRIFT_RC"
+        echo "_iwe-drift.sh exit code: ${DRIFT_RC}_"
     fi
 else
     echo "❌ \`scripts/iwe-drift.sh\` не найден — drift-сверка пропущена"
 fi
 echo ""
 
-# ---------- Раздел 3: DS-strategy ----------
+# ---------- Раздел 3: Governance repo ----------
 
-echo "## 3. DS-strategy"
+echo "## 3. $GOV_REPO"
 echo ""
 
 if [ ! -d "$DS_DIR/.git" ]; then
-    echo "❌ \`DS-strategy\` не git-репо (или директория отсутствует)"
+    echo "❌ \`$GOV_REPO\` не git-репо (или директория отсутствует)"
 else
     set +e
     DS_STATUS=$(git -C "$DS_DIR" status --short 2>&1)

@@ -2,6 +2,9 @@
 name: verify
 description: Верификация артефакта по эталону из Pack. Загружает роль VR.R.001 (Верификатор) с context isolation — проверяет результат, а не процесс создания.
 argument-hint: "[code|archgate|capture|wp|chain|adversarial|subsection|section|guide|auto] [путь или id]"
+routing:
+  executor: sonnet
+  deterministic: false
 ---
 
 # Верификация артефакта
@@ -68,7 +71,10 @@ argument-hint: "[code|archgate|capture|wp|chain|adversarial|subsection|section|g
 - Прочитать WP context file (`DS-strategy/inbox/WP-{N}-*.md`)
 - Прочитать артефакт РП
 - Передать sub-agent'у: артефакт + критерии done + чеклист wp
-- Модель sub-agent'а: по verification_class
+- Модель sub-agent'а: по verification_class:
+  - `trivial` → Haiku
+  - `closed-loop` / `open-loop` → Sonnet
+  - `problem-framing` → Opus
 
 **Для `chain` (CoVe — Chain-of-Verification, Meta ACL 2024):**
 - Прочитать `git diff` изменённых файлов

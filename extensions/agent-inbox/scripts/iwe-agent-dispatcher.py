@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# OUTDATED: canonical copy at workspace scripts/iwe-agent-dispatcher.py
+# See #143 for RC1-RC5 fixes. Do not use this file in production.
 """
 iwe-agent-dispatcher.py — диспетчер Agent Inbox IWE (WP-324 Ф8).
 
@@ -529,8 +531,19 @@ def process_task(task_path: Path, repo_dir: Path, dry_run: bool) -> bool:
     finished_at = now_utc()
     log(f"claude done ok={ok} duration={(finished_at - started_at).total_seconds():.0f}s")
 
-    # Write result
-    result_path = write_result(repo_dir, task_id, fm, ok, output, started_at, finished_at)
+    # Sync with origin: agent may have committed its own result during execution.
+    # reset --hard picks up those commits before we write dispatcher's status update.
+    log("Syncing with origin after claude returned...")
+    run(["git", "fetch", "origin", GOV_BRANCH], cwd=repo_dir, timeout=30)
+    run(["git", "reset", "--hard", f"origin/{GOV_BRANCH}"], cwd=repo_dir, timeout=30)
+
+    # Write result only if agent didn't already write it
+    results_dir = repo_dir / "inbox" / "agent" / "results"
+    result_path = results_dir / f"RESULT-{task_id.replace('TASK-', '')}.md"
+    if result_path.exists():
+        log(f"Agent already wrote result file — skipping dispatcher write")
+    else:
+        result_path = write_result(repo_dir, task_id, fm, ok, output, started_at, finished_at)
 
     # Update task status
     update_task_frontmatter(task_path, {
@@ -539,7 +552,7 @@ def process_task(task_path: Path, repo_dir: Path, dry_run: bool) -> bool:
     })
     commit_and_push(repo_dir,
         f"dispatch(WP-324): {task_id} → {'completed' if ok else 'failed'}",
-        [task_path, result_path])
+        [task_path])
 
     return True
 

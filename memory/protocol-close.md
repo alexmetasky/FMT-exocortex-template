@@ -44,7 +44,14 @@ schema_version: 1
 
 2. **WP Context File** — обновить секцию «Осталось» (structured формат):
    - in_progress → structured handoff
-   - done → пометить `status: done`
+   - done → пометить `status: done` **→ и немедленно архивировать:**
+     ```bash
+     git mv inbox/WP-N archive/wp-contexts/WP-N   # папка
+     git mv inbox/WP-N-slug.md archive/wp-contexts/WP-N-slug.md  # файл
+     # patch frontmatter: status: archived, archived_at: YYYY-MM-DD
+     # нет results_in → добавить results_not_captured: true
+     ```
+     *(Реализует DP.SC.033 инвариант: done-РП не остаётся в inbox дольше одного Day Close)*
    - Незавершённое → context file. Идея → `MAPSTRATEGIC.md`. Зерно → `drafts/draft-list.md`
 
 2.5. **KE** — прочитать поле «Что узнали» в «Осталось». Маршрутизировать СЕЙЧАС:
@@ -109,6 +116,7 @@ schema_version: 1
 - [ ] MEMORY.md: статус РП обновлён
 - [ ] Decision log: прочитать записи сессии в `decisions/decision-log-YYYY-MM.md`, скорректировать если неточно
 - [ ] **Docs Gate (условный):** РП затрагивал поведение онбординга (skills, MCP-сервисы, бот `/start`)? → обновить онбординг-документацию в governance-репо + `/verify` обновлённый файл. Владелец: пользователь. Если не затрагивал → пропустить молча.
+- [ ] **Conversational-сессии:** report.md создан ИЛИ status: interrupted (DP.SC.154 Q8)
 
 
 ## Week Close (Неделя)
@@ -121,8 +129,8 @@ schema_version: 1
 1. **Бэкап + грязные репо** — `backup-icloud.sh` + `check-dirty-repos.sh` (платформа)
 2. **Memory Validate** — `memory-bleed.sh` (HOT-лимит, orphans, superseded_by)
 3. **ТО памяти (T, SC.024.3)** — проверка здоровья статической нагрузки:
-   - `wc -l {{WORKSPACE_DIR}}/.claude/rules/distinctions.md` → **> 80 строк = drift-флаг** (по правилу DP.KR.001 §6: 1-3 строки на различение). Предложить аудит в WP-7.
-   - `wc -l ~/.claude/projects/{{CLAUDE_PROJECT_SLUG}}/memory/MEMORY.md` → **> 200 строк = флаг** (превышен лимит).
+   - `wc -l {{HOME_DIR}}/IWE/.claude/rules/distinctions.md` → **> 80 строк = drift-флаг** (по правилу DP.KR.001 §6: 1-3 строки на различение). Предложить аудит в WP-7.
+   - `wc -l {{HOME_DIR}}/.claude/projects/{{CLAUDE_PROJECT_SLUG}}/memory/MEMORY.md` → **> 200 строк = флаг** (превышен лимит).
    - Feedback/lessons файлы в `memory/` с `mtime > 14 дней` без обращения → предложить понизить `horizon: warm`.
    - Флаги — информативно. Пользователь решает действие.
 4. **iwe-drift.sh** — полный drift-отчёт в Week Report (S)
