@@ -142,16 +142,23 @@ fi
 STAGED_SETTINGS=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null \
     | grep -E '^\.claude/settings\.json$' || true)
 if [ -n "$STAGED_SETTINGS" ] && [ -x "scripts/validate-fmt-scripts.sh" ]; then
-    if ! bash scripts/validate-fmt-scripts.sh scripts/ >/tmp/iwe-settings-validate.$$ 2>&1; then
-        echo "HOOK-PATH-CONVENTION: FAIL"
-        cat /tmp/iwe-settings-validate.$$
+    # FMT7 (#150): валидировать только staged-скрипты, а не весь scripts/ —
+    # иначе pre-existing долг в чужом файле блокирует регистрацию нового хука.
+    STAGED_SCRIPTS=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null \
+        | grep -E '\.(sh|py)$' || true)
+    if [ -n "$STAGED_SCRIPTS" ]; then
+        # shellcheck disable=SC2086
+        if ! bash scripts/validate-fmt-scripts.sh --files $STAGED_SCRIPTS >/tmp/iwe-settings-validate.$$ 2>&1; then
+            echo "HOOK-PATH-CONVENTION: FAIL"
+            cat /tmp/iwe-settings-validate.$$
+            rm -f /tmp/iwe-settings-validate.$$
+            echo ""
+            echo "  Используй settings-promote.sh для регистрации новых хуков."
+            echo "  Override: git commit --no-verify"
+            exit 1
+        fi
         rm -f /tmp/iwe-settings-validate.$$
-        echo ""
-        echo "  Используй settings-promote.sh для регистрации новых хуков."
-        echo "  Override: git commit --no-verify"
-        exit 1
     fi
-    rm -f /tmp/iwe-settings-validate.$$
 fi
 
 # === Template validation (author-specific leaks, hardcoded paths, hooks cross-ref) ===
@@ -165,7 +172,9 @@ fi
 STAGED_TEMPLATE=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null \
     | grep -E '\.(md|sh|py|json|plist|yaml)$' || true)
 if [ -n "$STAGED_TEMPLATE" ] && [ -x "setup/validate-template.sh" ]; then
-    if ! bash setup/validate-template.sh >/tmp/iwe-validate.$$ 2>&1; then
+    # --mode=staged: проверяет только staged файлы. Предотвращает ложные блокировки
+    # от unstaged WIP параллельных агентов (мультиагентная среда IWE). CI использует pristine.
+    if ! bash setup/validate-template.sh --mode=staged >/tmp/iwe-validate.$$ 2>&1; then
         echo "TEMPLATE-VALIDATE: FAIL"
         cat /tmp/iwe-validate.$$
         rm -f /tmp/iwe-validate.$$
