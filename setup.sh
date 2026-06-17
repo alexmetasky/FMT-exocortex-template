@@ -12,6 +12,7 @@ VERSION="0.7.0"  # WP-273 Этап 2: Generated runtime architecture (F)
 DRY_RUN=false
 CORE_ONLY=false
 VALIDATE_ONLY=false
+_MCP_AUTH_INCOMPLETE=false
 
 # === Cross-platform sed -i ===
 # macOS sed requires '' after -i, GNU sed does not
@@ -300,13 +301,13 @@ CLAUDE_PROJECT_SLUG="$(echo "$WORKSPACE_DIR" | tr '/' '-')"
 # Стратегия: (1) DS-strategy (default), (2) wildcard DS-*-strategy* (legacy/локальные имена).
 # Если ни один не найден — default DS-strategy (будет создан при первом seed-ритуале).
 GOVERNANCE_REPO=""
-if [ -d "$WORKSPACE_DIR/DS-strategy" ]; then
-    GOVERNANCE_REPO="DS-strategy"
+if [ -d "$WORKSPACE_DIR/${IWE_GOVERNANCE_REPO:-DS-strategy}" ]; then
+    GOVERNANCE_REPO="${IWE_GOVERNANCE_REPO:-DS-strategy}"
 fi
 if [ -z "$GOVERNANCE_REPO" ]; then
     for d in "$WORKSPACE_DIR"/DS-*; do
         case "${d##*/}" in
-            DS-*strategy*|DS-strategy)
+            DS-*strategy*|${IWE_GOVERNANCE_REPO:-DS-strategy})
                 GOVERNANCE_REPO="${d##*/}"
                 break
                 ;;
@@ -512,15 +513,16 @@ else
     fi
 fi
 
-# === 4b. Propagate skills, hooks, rules, lib, config, detectors, scripts to workspace ===
-echo "[4b] Installing skills, hooks, rules, lib, config, detectors, scripts..."
+# === 4b. Propagate skills, hooks, rules, lib, config, detectors, scripts, styles to workspace ===
+echo "[4b] Installing skills, hooks, rules, lib, config, detectors, scripts, styles..."
 if $DRY_RUN; then
-    echo "  [DRY RUN] Would copy .claude/{skills,hooks,rules,lib,config,detectors,scripts,agents}/ → $WORKSPACE_DIR/.claude/"
+    echo "  [DRY RUN] Would copy .claude/{skills,hooks,rules,lib,config,detectors,scripts,agents,styles}/ → $WORKSPACE_DIR/.claude/"
 else
     mkdir -p "$WORKSPACE_DIR/.claude"
     # lib/config/detectors — runtime dependencies капчер-шины (capture-bus.sh) и детекторов
     # scripts — требуется скиллами (напр. load-extensions.sh)
-    for subdir in skills hooks rules lib config detectors scripts agents; do
+    # styles — дисциплина языковых стилей (WP-412)
+    for subdir in skills hooks rules lib config detectors scripts agents styles; do
         if [ -d "$TEMPLATE_DIR/.claude/$subdir" ]; then
             cp -r "$TEMPLATE_DIR/.claude/$subdir" "$WORKSPACE_DIR/.claude/"
             echo "  ✓ .claude/$subdir/ → $WORKSPACE_DIR/.claude/$subdir/"
@@ -555,7 +557,7 @@ if $DRY_RUN; then
     _IWE_TIER=$(check_user_tier)
     echo "  [DRY RUN] Would generate $MCP_DEST (tier=$_IWE_TIER)"
     case "$_IWE_TIER" in
-        T3|T4) echo "    iwe-knowledge → https://mcp.aisystant.com/mcp (CLI-режим)" ;;
+        T3|T4) echo "    iwe-knowledge → https://mcp.aisystant.com/mcp (ict-token auth — требует IWE_ICT_TOKEN или ~/.iwe/config.yaml ict_token)" ;;
         *)     echo "    iwe-knowledge → https://mcp.aisystant.com/mcp (браузерный OAuth)" ;;
     esac
     if [ -f "$MCP_USER_EXT" ] && command -v jq >/dev/null 2>&1; then
@@ -570,20 +572,43 @@ else
 
     case "$_IWE_TIER" in
         T3|T4)
-            # CLI-режим: заголовок сигнализирует gateway пропустить браузерный редирект
-            cat > "$MCP_DEST" <<'MCPEOF'
-{
-  "mcpServers": {
-    "iwe-knowledge": {
-      "type": "http",
-      "url": "https://mcp.aisystant.com/mcp",
-      "headers": { "x-iwe-auth-mode": "cli" }
-    }
-  }
-}
-MCPEOF
-            echo "  ✓ $MCP_DEST → iwe-knowledge (CLI-режим, tier=$_IWE_TIER)"
-            echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) setup tier=$_IWE_TIER mode=cli" >> "$_MCP_LOG"
+            # Resolve ict_ token: IWE_ICT_TOKEN env (primary) → ~/.iwe/config.yaml (best-effort)
+            # config.yaml expected format: ict_token: "ict_VALUE"  (no inline comments, no spaces in value)
+            _ICT_TOKEN="${IWE_ICT_TOKEN:-}"
+            if [ -z "$_ICT_TOKEN" ]; then
+                _cfg="${IWE_CONFIG:-$HOME/.iwe/config.yaml}"
+                if [ -f "$_cfg" ]; then
+                    _ICT_TOKEN=$(grep -E '^ict_token[[:space:]]*:' "$_cfg" 2>/dev/null | head -1 | \
+                        sed 's/^[[:space:]]*ict_token[[:space:]]*:[[:space:]]*//' | \
+                        tr -d '"' | tr -d "'" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                fi
+            fi
+
+            if [ -n "$_ICT_TOKEN" ]; then
+                if jq -n \
+                    --arg token "$_ICT_TOKEN" \
+                    '{"mcpServers":{"iwe-knowledge":{"type":"http","url":"https://mcp.aisystant.com/mcp","headers":{"Authorization":("Bearer " + $token)}}}}' \
+                    > "$MCP_DEST" 2>/dev/null; then
+                    echo "  ✓ $MCP_DEST → iwe-knowledge (аутентифицирован, tier=$_IWE_TIER)"
+                    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) setup tier=$_IWE_TIER mode=ict_token" >> "$_MCP_LOG"
+                else
+                    echo "  ✗ jq error generating .mcp.json (check jq is installed)"
+                    _MCP_AUTH_INCOMPLETE=true
+                    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) setup tier=$_IWE_TIER mode=jq_error" >> "$_MCP_LOG"
+                fi
+            else
+                echo ""
+                echo "  ✗ Tier=$_IWE_TIER — токен аутентификации не найден. .mcp.json не записан."
+                echo "  ─────────────────────────────────────────────────────────────"
+                echo "  Для активации T3-доступа к знаниям:"
+                echo "  1. Напишите боту @aisystant_bot команду: /connect_external"
+                echo "  2. Добавьте токен в ~/.iwe/config.yaml:"
+                echo "     ict_token: \"ict_ВАШТОКЕН\""
+                echo "     (или: export IWE_ICT_TOKEN=ict_ВАШТОКЕН && bash setup.sh)"
+                echo "  ─────────────────────────────────────────────────────────────"
+                _MCP_AUTH_INCOMPLETE=true
+                echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) setup tier=$_IWE_TIER mode=missing_token" >> "$_MCP_LOG"
+            fi
             ;;
         *)
             cp "$MCP_TEMPLATE" "$MCP_DEST"
@@ -592,8 +617,8 @@ MCPEOF
             ;;
     esac
 
-    # Merge extensions/mcp-user.json if it exists and has content
-    if [ -f "$MCP_USER_EXT" ]; then
+    # Merge extensions/mcp-user.json if it exists and has content (skip if MCP_DEST was not written)
+    if [ -f "$MCP_USER_EXT" ] && [ -f "$MCP_DEST" ]; then
         if command -v jq >/dev/null 2>&1; then
             USER_COUNT=$(jq '.mcpServers | length' "$MCP_USER_EXT" 2>/dev/null || echo "0")
             if [ "$USER_COUNT" -gt 0 ]; then
@@ -639,10 +664,10 @@ elif ! command -v launchctl >/dev/null 2>&1; then
 else
     echo "[5/6] Installing roles..."
 
-    # Source ~/.iwe-paths — гарантирует IWE_RUNTIME / IWE_WORKSPACE / IWE_TEMPLATE
+    # Source $WORKSPACE_DIR/.iwe-paths — гарантирует IWE_RUNTIME / IWE_WORKSPACE / IWE_TEMPLATE
     # в env для role install.sh (тот же паттерн что в update.sh:836).
     # Без этого install.sh падает в legacy fallback и видит {{плейсхолдеры}}.
-    [ -f "$HOME/.iwe-paths" ] && . "$HOME/.iwe-paths"
+    [ -f "$WORKSPACE_DIR/.iwe-paths" ] && . "$WORKSPACE_DIR/.iwe-paths"
 
     MANUAL_ROLES=()
 
@@ -682,22 +707,22 @@ else
     fi
 fi
 
-# === 6. Create DS-strategy repo ===
-echo "[6/6] Setting up DS-strategy..."
-MY_STRATEGY_DIR="$WORKSPACE_DIR/DS-strategy"
+# === 6. Create governance repo ===
+echo "[6/6] Setting up ${IWE_GOVERNANCE_REPO:-DS-strategy}..."
+MY_STRATEGY_DIR="$WORKSPACE_DIR/${IWE_GOVERNANCE_REPO:-DS-strategy}"
 STRATEGY_TEMPLATE="$TEMPLATE_DIR/seed/strategy"
 
 if [ -d "$MY_STRATEGY_DIR/.git" ]; then
-    echo "  DS-strategy already exists as git repo."
+    echo "  ${IWE_GOVERNANCE_REPO:-DS-strategy} already exists as git repo."
 elif $DRY_RUN; then
     if [ -d "$STRATEGY_TEMPLATE" ]; then
-        echo "  [DRY RUN] Would create DS-strategy from seed/strategy → $MY_STRATEGY_DIR"
+        echo "  [DRY RUN] Would create ${IWE_GOVERNANCE_REPO:-DS-strategy} from seed/strategy → $MY_STRATEGY_DIR"
         echo "  [DRY RUN] Would init git repo + initial commit"
         if ! $CORE_ONLY; then
-            echo "  [DRY RUN] Would create GitHub repo: $GITHUB_USER/DS-strategy (private)"
+            echo "  [DRY RUN] Would create GitHub repo: $GITHUB_USER/${IWE_GOVERNANCE_REPO:-DS-strategy} (private)"
         fi
     else
-        echo "  [DRY RUN] Would create minimal DS-strategy (seed/strategy not found)"
+        echo "  [DRY RUN] Would create minimal ${IWE_GOVERNANCE_REPO:-DS-strategy} (seed/strategy not found)"
     fi
 else
     if [ -d "$STRATEGY_TEMPLATE" ]; then
@@ -706,29 +731,29 @@ else
         cd "$MY_STRATEGY_DIR"
         git init
         git add -A
-        git commit -m "Initial exocortex: DS-strategy governance hub"
+        git commit -m "Initial exocortex: ${IWE_GOVERNANCE_REPO:-DS-strategy} governance hub"
 
         if ! $CORE_ONLY; then
             # Create GitHub repo (full mode only)
-            gh repo create "$GITHUB_USER/DS-strategy" --private --source=. --push 2>/dev/null || \
-                echo "  GitHub repo DS-strategy already exists or creation skipped."
+            gh repo create "$GITHUB_USER/${IWE_GOVERNANCE_REPO:-DS-strategy}" --private --source=. --push 2>/dev/null || \
+                echo "  GitHub repo ${IWE_GOVERNANCE_REPO:-DS-strategy} already exists or creation skipped."
         else
             echo "  Локальный репозиторий создан. Для публикации на GitHub:"
-            echo "    cd $MY_STRATEGY_DIR && gh repo create $GITHUB_USER/DS-strategy --private --source=. --push"
+            echo "    cd $MY_STRATEGY_DIR && gh repo create $GITHUB_USER/${IWE_GOVERNANCE_REPO:-DS-strategy} --private --source=. --push"
         fi
     else
-        echo "  ERROR: seed/strategy/ not found. DS-strategy will be incomplete."
+        echo "  ERROR: seed/strategy/ not found. ${IWE_GOVERNANCE_REPO:-DS-strategy} will be incomplete."
         echo "  Fix: re-clone the template and run setup.sh again."
         echo "  Creating minimal structure as fallback..."
         mkdir -p "$MY_STRATEGY_DIR"/{current,inbox,archive/wp-contexts,docs,exocortex}
         cd "$MY_STRATEGY_DIR"
         git init
         git add -A
-        git commit -m "Initial exocortex: DS-strategy governance hub (minimal)"
+        git commit -m "Initial exocortex: ${IWE_GOVERNANCE_REPO:-DS-strategy} governance hub (minimal)"
 
         if ! $CORE_ONLY; then
-            gh repo create "$GITHUB_USER/DS-strategy" --private --source=. --push 2>/dev/null || \
-                echo "  GitHub repo DS-strategy already exists or creation skipped."
+            gh repo create "$GITHUB_USER/${IWE_GOVERNANCE_REPO:-DS-strategy}" --private --source=. --push 2>/dev/null || \
+                echo "  GitHub repo ${IWE_GOVERNANCE_REPO:-DS-strategy} already exists or creation skipped."
         fi
     fi
 fi
@@ -783,7 +808,7 @@ else
     echo "  ✓ CLAUDE.md:   $WORKSPACE_DIR/CLAUDE.md"
     echo "  ✓ Memory:      $CLAUDE_MEMORY_DIR/ ($(ls "$CLAUDE_MEMORY_DIR"/*.md 2>/dev/null | wc -l | tr -d ' ') files)"
     echo "  ✓ Symlink:     $WORKSPACE_DIR/memory → $CLAUDE_MEMORY_DIR"
-    echo "  ✓ DS-strategy: $MY_STRATEGY_DIR/"
+    echo "  ✓ ${IWE_GOVERNANCE_REPO:-DS-strategy}: $MY_STRATEGY_DIR/"
     echo "  ✓ Template:    $TEMPLATE_DIR/"
     echo ""
 
@@ -824,5 +849,15 @@ else
             echo "Пропущено. Запустить позже: cd $TEMPLATE_DIR && bash setup.sh --validate"
         fi
         echo ""
+    fi
+
+    # === Final: MCP auth check ===
+    if [ "${_MCP_AUTH_INCOMPLETE:-false}" = "true" ]; then
+        echo ""
+        echo "════════════════════════════════════════════════════════════════"
+        echo "  ⚠ SETUP INCOMPLETE: T3/T4 MCP-аутентификация не настроена."
+        echo "  Выполните шаги в секции [4c] выше и повторите: bash setup.sh"
+        echo "════════════════════════════════════════════════════════════════"
+        exit 1
     fi
 fi
