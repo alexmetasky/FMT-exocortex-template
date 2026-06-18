@@ -38,7 +38,7 @@ if [ -z "${NOTIFY_SH_PATH:-}" ]; then
 fi
 
 # Guard: IWE_GOVERNANCE_REPO mismatch (Claude peer-review, 2026-05-26)
-EXPECTED_GOV=$(grep 'IWE_GOVERNANCE_REPO=' "$HOME/.iwe-paths" 2>/dev/null | sed 's/.*="//;s/"$//' || echo "${IWE_GOVERNANCE_REPO:-DS-strategy}")
+EXPECTED_GOV=$(grep 'IWE_GOVERNANCE_REPO=' "$HOME/.iwe-paths" 2>/dev/null | sed 's/.*="//;s/"$//' || echo "DS-strategy")
 if [ "${IWE_GOVERNANCE_REPO:-}" ] && [ "$IWE_GOVERNANCE_REPO" != "$EXPECTED_GOV" ]; then
     echo "WARN: IWE_GOVERNANCE_REPO=$IWE_GOVERNANCE_REPO, expected $EXPECTED_GOV (from ~/.iwe-paths)" >&2
 fi

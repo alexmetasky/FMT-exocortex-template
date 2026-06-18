@@ -54,7 +54,7 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 
 
-## [0.35.4] — 2026-06-17
+## [Unreleased] — обновлено 2026-06-17
 
 ### Added
 

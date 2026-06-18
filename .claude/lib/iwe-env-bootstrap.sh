@@ -1,6 +1,6 @@
 #!/bin/bash
 # IWE Environment Bootstrap — Unified Variables
-# Source this in any script that needs workspace or template root paths
+# Source this in any script that needs workspace/root paths
 # Usage: source "$IWE_SCRIPTS/iwe-env-bootstrap.sh"
 
 # Exit early if already sourced
