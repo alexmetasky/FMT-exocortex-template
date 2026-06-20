@@ -758,6 +758,21 @@ else
     fi
 fi
 
+# === 6b. Generate executor-catalog.yaml (DP.ROLE.059, Маршрутизатор) ===
+# route-task.sh ищет $GOVERNANCE_REPO/scripts/executor-catalog.yaml — без него
+# любой скилл, идущий через маршрутизатор, падает с "catalog lookup failed".
+echo "[6b] Генерация executor-catalog.yaml..."
+CATALOG_OUTPUT="$MY_STRATEGY_DIR/scripts/executor-catalog.yaml"
+if $DRY_RUN; then
+    echo "  [DRY RUN] Would generate $CATALOG_OUTPUT from .claude/skills/*/SKILL.md"
+elif command -v python3 >/dev/null 2>&1; then
+    IWE_GOVERNANCE_REPO="$GOVERNANCE_REPO" python3 "$TEMPLATE_DIR/scripts/generate-executor-catalog.py" \
+        --output "$CATALOG_OUTPUT" 2>&1 | sed 's/^/  /'
+else
+    echo "  ⚠ python3 не найден — executor-catalog.yaml не сгенерирован."
+    echo "    Выполните позже: python3 $TEMPLATE_DIR/scripts/generate-executor-catalog.py --output $CATALOG_OUTPUT"
+fi
+
 # === 7. Clone Base repos (FPF + SPF) ===
 echo "[7/7] Installing Base repos (FPF, SPF)..."
 if $CORE_ONLY; then
