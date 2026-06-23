@@ -104,8 +104,25 @@ except Exception as e:
     pass
 " 2>/dev/null)
 
+# Пустой calendar_ids в конфиге = «все доступные календари» (см. комментарий
+# в day-rhythm-config.yaml). Разворачиваем через calendarList.list.
 if [[ -z "$CALENDAR_IDS" ]]; then
-  echo "📅 **Календарь ($DATE):** ⚠️ PENDING — calendar_ids не найдены в конфиге"
+  CALENDAR_LIST_RESPONSE=$(curl -s -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+    "https://www.googleapis.com/calendar/v3/users/me/calendarList" 2>/dev/null)
+  CALENDAR_IDS=$(echo "$CALENDAR_LIST_RESPONSE" | $PYTHON3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    for item in d.get('items', []):
+        if item.get('selected', True):
+            print(item['id'])
+except Exception:
+    pass
+" 2>/dev/null)
+fi
+
+if [[ -z "$CALENDAR_IDS" ]]; then
+  echo "📅 **Календарь ($DATE):** ⚠️ PENDING — calendar_ids не найдены в конфиге и calendarList.list не вернул календарей"
   echo ""
   echo "⏱ Свободных блоков ≥1h: **не определено**"
   exit 0
