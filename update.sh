@@ -1020,8 +1020,11 @@ manifest_path = os.path.join(script_dir, "update-manifest.json")
 with open(manifest_path) as f:
     manifest = json.load(f)
 
-known = set(manifest.get("files", []))
-deprecated = set(manifest.get("deprecated_files", []))
+def _paths(items):
+    return {(x["path"] if isinstance(x, dict) else x) for x in items}
+
+known = _paths(manifest.get("files", []))
+deprecated = _paths(manifest.get("deprecated_files", []))
 all_known = known | deprecated
 
 L1_DIRS = [".claude/hooks", ".claude/rules", ".claude/skills"]
