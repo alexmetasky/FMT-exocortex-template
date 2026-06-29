@@ -301,13 +301,13 @@ CLAUDE_PROJECT_SLUG="$(echo "$WORKSPACE_DIR" | tr '/' '-')"
 # Стратегия: (1) DS-strategy (default), (2) wildcard DS-*-strategy* (legacy/локальные имена).
 # Если ни один не найден — default DS-strategy (будет создан при первом seed-ритуале).
 GOVERNANCE_REPO=""
-if [ -d "$WORKSPACE_DIR/DS-strategy" ]; then
-    GOVERNANCE_REPO="DS-strategy"
+if [ -d "$WORKSPACE_DIR/${IWE_GOVERNANCE_REPO:-DS-strategy}" ]; then
+    GOVERNANCE_REPO="${IWE_GOVERNANCE_REPO:-DS-strategy}"
 fi
 if [ -z "$GOVERNANCE_REPO" ]; then
     for d in "$WORKSPACE_DIR"/DS-*; do
         case "${d##*/}" in
-            DS-*strategy*|DS-strategy)
+            DS-*strategy*)
                 GOVERNANCE_REPO="${d##*/}"
                 break
                 ;;
@@ -508,7 +508,7 @@ else
         echo "  .mcp.json содержит iwe-knowledge → https://mcp.aisystant.com/mcp"
         echo "  T1-T2: при первом запуске откроется браузер (OAuth через Ory)."
         echo "  T3-T4: CLI-режим (IWE_TIER=T3 в env или tier: T3 в ~/.iwe/config.yaml)."
-        echo "  Необходима подписка «Бесконечное развитие»."
+        echo "  Необходима подписка «Инженерия интеллекта» (ранее «Бесконечное развитие»)."
         echo "  После входа: /mcp в Claude Code."
     fi
 fi
@@ -707,22 +707,22 @@ else
     fi
 fi
 
-# === 6. Create DS-strategy repo ===
-echo "[6/6] Setting up DS-strategy..."
-MY_STRATEGY_DIR="$WORKSPACE_DIR/DS-strategy"
+# === 6. Create governance repo (default name: DS-strategy) ===
+echo "[6/6] Setting up $GOVERNANCE_REPO..."
+MY_STRATEGY_DIR="$WORKSPACE_DIR/$GOVERNANCE_REPO"
 STRATEGY_TEMPLATE="$TEMPLATE_DIR/seed/strategy"
 
 if [ -d "$MY_STRATEGY_DIR/.git" ]; then
-    echo "  DS-strategy already exists as git repo."
+    echo "  $GOVERNANCE_REPO already exists as git repo."
 elif $DRY_RUN; then
     if [ -d "$STRATEGY_TEMPLATE" ]; then
-        echo "  [DRY RUN] Would create DS-strategy from seed/strategy → $MY_STRATEGY_DIR"
+        echo "  [DRY RUN] Would create $GOVERNANCE_REPO from seed/strategy → $MY_STRATEGY_DIR"
         echo "  [DRY RUN] Would init git repo + initial commit"
         if ! $CORE_ONLY; then
-            echo "  [DRY RUN] Would create GitHub repo: $GITHUB_USER/DS-strategy (private)"
+            echo "  [DRY RUN] Would create GitHub repo: $GITHUB_USER/$GOVERNANCE_REPO (private)"
         fi
     else
-        echo "  [DRY RUN] Would create minimal DS-strategy (seed/strategy not found)"
+        echo "  [DRY RUN] Would create minimal $GOVERNANCE_REPO (seed/strategy not found)"
     fi
 else
     if [ -d "$STRATEGY_TEMPLATE" ]; then
@@ -731,46 +731,31 @@ else
         cd "$MY_STRATEGY_DIR"
         git init
         git add -A
-        git commit -m "Initial exocortex: DS-strategy governance hub"
+        git commit -m "Initial exocortex: $GOVERNANCE_REPO governance hub"
 
         if ! $CORE_ONLY; then
             # Create GitHub repo (full mode only)
-            gh repo create "$GITHUB_USER/DS-strategy" --private --source=. --push 2>/dev/null || \
-                echo "  GitHub repo DS-strategy already exists or creation skipped."
+            gh repo create "$GITHUB_USER/$GOVERNANCE_REPO" --private --source=. --push 2>/dev/null || \
+                echo "  GitHub repo $GOVERNANCE_REPO already exists or creation skipped."
         else
             echo "  Локальный репозиторий создан. Для публикации на GitHub:"
-            echo "    cd $MY_STRATEGY_DIR && gh repo create $GITHUB_USER/DS-strategy --private --source=. --push"
+            echo "    cd $MY_STRATEGY_DIR && gh repo create $GITHUB_USER/$GOVERNANCE_REPO --private --source=. --push"
         fi
     else
-        echo "  ERROR: seed/strategy/ not found. DS-strategy will be incomplete."
+        echo "  ERROR: seed/strategy/ not found. $GOVERNANCE_REPO will be incomplete."
         echo "  Fix: re-clone the template and run setup.sh again."
         echo "  Creating minimal structure as fallback..."
         mkdir -p "$MY_STRATEGY_DIR"/{current,inbox,archive/wp-contexts,docs,exocortex}
         cd "$MY_STRATEGY_DIR"
         git init
         git add -A
-        git commit -m "Initial exocortex: DS-strategy governance hub (minimal)"
+        git commit -m "Initial exocortex: $GOVERNANCE_REPO governance hub (minimal)"
 
         if ! $CORE_ONLY; then
-            gh repo create "$GITHUB_USER/DS-strategy" --private --source=. --push 2>/dev/null || \
-                echo "  GitHub repo DS-strategy already exists or creation skipped."
+            gh repo create "$GITHUB_USER/$GOVERNANCE_REPO" --private --source=. --push 2>/dev/null || \
+                echo "  GitHub repo $GOVERNANCE_REPO already exists or creation skipped."
         fi
     fi
-fi
-
-# === 6b. Generate executor-catalog.yaml (DP.ROLE.059, Маршрутизатор) ===
-# route-task.sh ищет $GOVERNANCE_REPO/scripts/executor-catalog.yaml — без него
-# любой скилл, идущий через маршрутизатор, падает с "catalog lookup failed".
-echo "[6b] Генерация executor-catalog.yaml..."
-CATALOG_OUTPUT="$MY_STRATEGY_DIR/scripts/executor-catalog.yaml"
-if $DRY_RUN; then
-    echo "  [DRY RUN] Would generate $CATALOG_OUTPUT from .claude/skills/*/SKILL.md"
-elif command -v python3 >/dev/null 2>&1; then
-    IWE_GOVERNANCE_REPO="$GOVERNANCE_REPO" python3 "$TEMPLATE_DIR/scripts/generate-executor-catalog.py" \
-        --output "$CATALOG_OUTPUT" 2>&1 | sed 's/^/  /'
-else
-    echo "  ⚠ python3 не найден — executor-catalog.yaml не сгенерирован."
-    echo "    Выполните позже: python3 $TEMPLATE_DIR/scripts/generate-executor-catalog.py --output $CATALOG_OUTPUT"
 fi
 
 # === 7. Clone Base repos (FPF + SPF) ===
@@ -823,7 +808,7 @@ else
     echo "  ✓ CLAUDE.md:   $WORKSPACE_DIR/CLAUDE.md"
     echo "  ✓ Memory:      $CLAUDE_MEMORY_DIR/ ($(ls "$CLAUDE_MEMORY_DIR"/*.md 2>/dev/null | wc -l | tr -d ' ') files)"
     echo "  ✓ Symlink:     $WORKSPACE_DIR/memory → $CLAUDE_MEMORY_DIR"
-    echo "  ✓ DS-strategy: $MY_STRATEGY_DIR/"
+    echo "  ✓ $GOVERNANCE_REPO: $MY_STRATEGY_DIR/"
     echo "  ✓ Template:    $TEMPLATE_DIR/"
     echo ""
 

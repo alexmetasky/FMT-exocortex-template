@@ -1,6 +1,6 @@
 #!/bin/bash
 # IWE Environment Bootstrap — Unified Variables
-# Source this in any script that needs workspace/root paths
+# Source this in any script that needs workspace or root-level paths
 # Usage: source "$IWE_SCRIPTS/iwe-env-bootstrap.sh"
 
 # Exit early if already sourced
@@ -81,6 +81,9 @@ export IWE_SCRIPTS="${IWE_SCRIPTS:-${WORKSPACE_DIR}/FMT-exocortex-template/scrip
 # Export to child processes
 export WORKSPACE_DIR
 export IWE_ROOT
+# IWE_WORKSPACE: alias for WORKSPACE_DIR, referenced by SPF/Pack CLAUDE.md paths.
+# Fallback only — keeps any value already set by the user's shell profile.
+export IWE_WORKSPACE="${IWE_WORKSPACE:-$WORKSPACE_DIR}"
 
 # Validation: ensure WORKSPACE_DIR exists
 if [ ! -d "$WORKSPACE_DIR" ]; then

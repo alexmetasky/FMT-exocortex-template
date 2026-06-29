@@ -57,6 +57,12 @@
       "path": ".claude/hooks/inject-fault-profile.sh"
     },
     {
+      "path": ".claude/hooks/inject-role-prefixes.sh"
+    },
+    {
+      "path": ".claude/hooks/lazy-context-loader.sh"
+    },
+    {
       "path": ".claude/hooks/memory-exocortex-sync.sh"
     },
     {
@@ -79,6 +85,9 @@
     },
     {
       "path": ".claude/hooks/response-clarity-hook.sh"
+    },
+    {
+      "path": ".claude/hooks/rule-engine.sh"
     },
     {
       "path": ".claude/hooks/wakatime-heartbeat.sh"
@@ -108,6 +117,9 @@
       "path": ".claude/parity-contract.yaml"
     },
     {
+      "path": ".claude/rules-lazy/role-prefixes-full.md"
+    },
+    {
       "path": ".claude/rules/distinctions.md"
     },
     {
@@ -124,6 +136,9 @@
     },
     {
       "path": ".claude/scripts/check-index-health.py"
+    },
+    {
+      "path": ".claude/scripts/generate-rules-registry.py"
     },
     {
       "path": ".claude/scripts/load-extensions.sh"
@@ -162,6 +177,9 @@
       "path": ".claude/skills/audit-installation/SKILL.md"
     },
     {
+      "path": ".claude/skills/author-mode/SKILL.md"
+    },
+    {
       "path": ".claude/skills/bottleneck-pick/SKILL.md"
     },
     {
@@ -177,7 +195,16 @@
       "path": ".claude/skills/day-close/SKILL.md"
     },
     {
+      "path": ".claude/skills/day-close/day-close-details.md"
+    },
+    {
+      "path": ".claude/skills/day-close/day-close/SKILL.md"
+    },
+    {
       "path": ".claude/skills/day-open/SKILL.md"
+    },
+    {
+      "path": ".claude/skills/day-open/day-open-details.md"
     },
     {
       "path": ".claude/skills/day-open/templates.md"
@@ -189,6 +216,9 @@
       "path": ".claude/skills/diagnose-iwe/SKILL.md"
     },
     {
+      "path": ".claude/skills/diagnose/SKILL.md"
+    },
+    {
       "path": ".claude/skills/discovery-session/SKILL.md"
     },
     {
@@ -196,6 +226,9 @@
     },
     {
       "path": ".claude/skills/fpf/SKILL.md"
+    },
+    {
+      "path": ".claude/skills/integration-gate/SKILL.md"
     },
     {
       "path": ".claude/skills/iwe-bug-report/SKILL.md"
@@ -220,6 +253,9 @@
     },
     {
       "path": ".claude/skills/lesson-close/SKILL.md"
+    },
+    {
+      "path": ".claude/skills/local-llm/SKILL.md"
     },
     {
       "path": ".claude/skills/month-close/SKILL.md"
@@ -319,6 +355,9 @@
     },
     {
       "path": ".claude/skills/week-close/SKILL.md"
+    },
+    {
+      "path": ".claude/skills/week-close/week-close/SKILL.md"
     },
     {
       "path": ".claude/skills/wp-new/SKILL.md"
@@ -1216,6 +1255,15 @@
     },
     {
       "path": "templates/strategy-skeleton/inbox/fleeting-notes.md"
+    },
+    {
+      "path": "translation-manifest.yaml"
+    },
+    {
+      "path": "translation/en-doc-style.md"
+    },
+    {
+      "path": "translation/glossary-v0.1.csv"
     },
     {
       "path": "update.sh"
