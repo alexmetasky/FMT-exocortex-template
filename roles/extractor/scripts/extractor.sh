@@ -171,11 +171,11 @@ $extra_args"
     notify "KE: $command_file" "Процесс завершён"
 }
 
-# Проверка рабочих часов
+# Проверка рабочих часов (07-23 по МСК = 04-20 UTC, TZ-фикс 04.07.2026)
 is_work_hours() {
     local hour
     hour=$(date +%H)
-    [ "$hour" -ge 7 ] && [ "$hour" -le 23 ]
+    [ "$hour" -ge 4 ] && [ "$hour" -le 20 ]
 }
 
 # Загружаем env
