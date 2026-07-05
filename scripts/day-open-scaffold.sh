@@ -26,10 +26,12 @@ CONFIG="$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/exocortex/day-rhythm-config.yam
 SERVER_MODE="${IWE_SERVER_MODE:-0}"  # WP-283: 1 = Linux server, Mac-only MCP недоступен
 
 # --- Pre-flight healthcheck (WP-7 ФDay-Open-Hardening) ---
-# ВНИМАНИЕ: day-open-preflight.sh нигде в дереве не найден (проверено 2026-07-05) —
-# fallback ниже всегда срабатывает, CALENDAR_PF/SCOUT_PF/TRIAGE_PF всегда "unknown".
-# Не путать с server-calendar.sh (работает, путь ниже исправлен отдельно).
-PREFLIGHT_JSON=$(bash "$FMT_DIR/scripts/day-open-preflight.sh" "$DATE" "$CONFIG" 2>/dev/null || echo '{"calendar":"unknown","scout":"unknown","triage":"unknown"}')
+# day-open-preflight.sh — intentional local override (не входит в FMT template).
+# Автор добавляет свой скрипт поверх template для preflight-данных (calendar, scout, triage, memory).
+# Template fallback: если скрипт отсутствует, preflight-данные = "unknown".
+# Проверено 2026-07-05: в этой установке $IWE/scripts/day-open-preflight.sh не создан —
+# это ожидаемо (опциональный extension point, не баг), fallback "unknown" работает как задумано.
+PREFLIGHT_JSON=$(bash "$IWE/scripts/day-open-preflight.sh" "$DATE" "$CONFIG" 2>/dev/null || echo '{"calendar":"unknown","scout":"unknown","triage":"unknown"}')
 CALENDAR_PF=$(echo "$PREFLIGHT_JSON" | jq -r '.calendar // "unknown"')
 SCOUT_PF=$(echo "$PREFLIGHT_JSON" | jq -r '.scout // "unknown"')
 TRIAGE_PF=$(echo "$PREFLIGHT_JSON" | jq -r '.triage // "unknown"')
