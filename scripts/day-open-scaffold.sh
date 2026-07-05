@@ -20,12 +20,16 @@
 set -uo pipefail
 
 IWE="${IWE_ROOT:-$HOME/IWE}"
+FMT_DIR="${IWE_TEMPLATE:-$IWE/FMT-exocortex-template}"
 DATE="${1:-$(date +%Y-%m-%d)}"
 CONFIG="$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/exocortex/day-rhythm-config.yaml"
 SERVER_MODE="${IWE_SERVER_MODE:-0}"  # WP-283: 1 = Linux server, Mac-only MCP недоступен
 
 # --- Pre-flight healthcheck (WP-7 ФDay-Open-Hardening) ---
-PREFLIGHT_JSON=$(bash "$IWE/scripts/day-open-preflight.sh" "$DATE" "$CONFIG" 2>/dev/null || echo '{"calendar":"unknown","scout":"unknown","triage":"unknown"}')
+# ВНИМАНИЕ: day-open-preflight.sh нигде в дереве не найден (проверено 2026-07-05) —
+# fallback ниже всегда срабатывает, CALENDAR_PF/SCOUT_PF/TRIAGE_PF всегда "unknown".
+# Не путать с server-calendar.sh (работает, путь ниже исправлен отдельно).
+PREFLIGHT_JSON=$(bash "$FMT_DIR/scripts/day-open-preflight.sh" "$DATE" "$CONFIG" 2>/dev/null || echo '{"calendar":"unknown","scout":"unknown","triage":"unknown"}')
 CALENDAR_PF=$(echo "$PREFLIGHT_JSON" | jq -r '.calendar // "unknown"')
 SCOUT_PF=$(echo "$PREFLIGHT_JSON" | jq -r '.scout // "unknown"')
 TRIAGE_PF=$(echo "$PREFLIGHT_JSON" | jq -r '.triage // "unknown"')
@@ -141,7 +145,7 @@ render_world() {
   echo "<details>"
   echo "<summary><b>Мир</b></summary>"
   echo ""
-  bash "$IWE/scripts/server-news.sh" "$CONFIG" 2>/dev/null || {
+  bash "$FMT_DIR/scripts/server-news.sh" "$CONFIG" 2>/dev/null || {
     echo "<!-- PENDING: world — RSS feeds недоступны (server-news.sh завершился с ошибкой). Каждый пункт = markdown URL. -->"
     echo ""
     echo "> ⚠️ Data-contract: каждый тезис в секции «Мир» обязан содержать markdown-ссылку на источник [заголовок](url)."
@@ -361,7 +365,7 @@ auto_generated: true
 
 1. Проверить \`~/Library/LaunchAgents/\` на наличие plist
 2. \`bash $IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/scripts/install-launchd.sh\` для регистрации
-3. Запустить руками: \`bash \${IWE_SCHEDULER_PATH:-$IWE/scripts/scheduler.sh} --dry-run\`
+3. Запустить руками: \`bash \${IWE_SCHEDULER_PATH:-$IWE/.iwe-runtime/roles/synchronizer/scripts/scheduler.sh} --dry-run\`
 
 ## Auto-generation note
 
@@ -469,7 +473,7 @@ render_compact_dashboard() {
 
   # Топ РП из sweep (первые 7)
   local sweep_rows
-  sweep_rows=$(bash "$IWE/scripts/active-wp-sweep.sh" "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/inbox" "$IWE" 2>/dev/null \
+  sweep_rows=$(bash "$FMT_DIR/scripts/active-wp-sweep.sh" "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/inbox" "$IWE" 2>/dev/null \
     | grep -E '^\| \*\*WP-' | head -7)
   if [[ -n "$sweep_rows" ]]; then
     echo "**Активные РП (top-7):**"
@@ -501,7 +505,7 @@ render_compact_dashboard() {
 }
 
 # --- Pre-compute sweep list для инжекта в PENDING (избежать двойного вызова внутри heredoc) ---
-SWEEP_WP_LIST=$(bash "$IWE/scripts/active-wp-sweep.sh" "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/inbox" "$IWE" 2>/dev/null \
+SWEEP_WP_LIST=$(bash "$FMT_DIR/scripts/active-wp-sweep.sh" "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/inbox" "$IWE" 2>/dev/null \
   | grep -oE '\*\*WP-[0-9]+\*\*' | tr -d '*' | tr '\n' ' ' | sed 's/  */ /g' || true)
 
 # --- Output ---
@@ -520,7 +524,7 @@ generated_by: day-open-scaffold.sh (WP-264 Ф2)
 <details>
 <summary><b>Активные РП (WP-283 Шаг E)</b></summary>
 
-$(bash "$IWE/scripts/active-wp-sweep.sh" "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/inbox" "$IWE" 2>/dev/null || echo "<!-- active-wp-sweep: ошибка запуска -->")
+$(bash "$FMT_DIR/scripts/active-wp-sweep.sh" "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/inbox" "$IWE" 2>/dev/null || echo "<!-- active-wp-sweep: ошибка запуска -->")
 
 </details>
 
@@ -564,7 +568,7 @@ Active WPs to include (из sweep + WeekPlan union): $SWEEP_WP_LIST
 <summary><b>Календарь ($DAY_NUM $MONTH_RU)</b></summary>
 
 $(if [[ "$SERVER_MODE" == "1" ]]; then
-  bash "$IWE/scripts/server-calendar.sh" "$DATE" "$CONFIG" 2>/dev/null || echo "📅 **Календарь ($DAY_NUM $MONTH_RU):** ⚠️ PENDING — server-calendar.sh завершился с ошибкой"
+  bash "$FMT_DIR/scripts/server-calendar.sh" "$DATE" "$CONFIG" 2>/dev/null || echo "📅 **Календарь ($DAY_NUM $MONTH_RU):** ⚠️ PENDING — server-calendar.sh завершился с ошибкой"
 else
   echo "<!-- PENDING: calendar — mcp__ext-google-calendar__list-events для calendar_ids из day-rhythm-config.yaml. Фильтр 09:00-19:00, private пропустить. -->"
   echo ""
