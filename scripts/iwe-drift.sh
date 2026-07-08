@@ -46,6 +46,15 @@ if [ ! -f "$MANIFEST" ]; then
     exit 1
 fi
 
+# Определить стиль stat один раз: GNU `stat -c` (Linux) не проваливается на
+# `-f` (BSD-флаг "filesystem info", не "file format" — bug-2026-05-19), поэтому
+# пробуем GNU-синтаксис первым и падаем на BSD только если он реально не сработал.
+if stat -c %Y . >/dev/null 2>&1; then
+    STAT_STYLE="gnu"
+else
+    STAT_STYLE="bsd"
+fi
+
 # Получить mtime файла в днях от сегодня (macOS stat -f, Linux stat -c)
 mtime_days_ago() {
     local path="$1"
@@ -54,10 +63,10 @@ mtime_days_ago() {
         return
     fi
     local mtime
-    if stat -f %m "$path" >/dev/null 2>&1; then
-        mtime=$(stat -f %m "$path")
-    else
+    if [ "$STAT_STYLE" = "gnu" ]; then
         mtime=$(stat -c %Y "$path")
+    else
+        mtime=$(stat -f %m "$path")
     fi
     local now
     now=$(date +%s)
@@ -72,9 +81,15 @@ dir_newest_mtime_days_ago() {
         return
     fi
     local newest
-    newest=$(find "$dir" -type f -not -path '*/.git/*' -print0 2>/dev/null \
-        | xargs -0 stat -f %m 2>/dev/null \
-        | sort -nr | head -1)
+    if [ "$STAT_STYLE" = "gnu" ]; then
+        newest=$(find "$dir" -type f -not -path '*/.git/*' -print0 2>/dev/null \
+            | xargs -0 stat -c %Y 2>/dev/null \
+            | sort -nr | head -1)
+    else
+        newest=$(find "$dir" -type f -not -path '*/.git/*' -print0 2>/dev/null \
+            | xargs -0 stat -f %m 2>/dev/null \
+            | sort -nr | head -1)
+    fi
     if [ -z "${newest:-}" ]; then
         echo "-1"
         return
