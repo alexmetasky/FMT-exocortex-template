@@ -215,8 +215,8 @@ dispatch() {
         ran=1
     fi
 
-    # --- Стратег: note-review (22:00+ по МСК = 19:00+ UTC, TZ-фикс 04.07.2026) ---
-    if (( 10#$HOUR >= 19 )) && ! ran_today "strategist-note-review"; then
+    # --- Стратег: note-review (22:00+) ---
+    if (( 10#$HOUR >= 22 )) && ! ran_today "strategist-note-review"; then
         log "→ strategist note-review (catch-up: hour=$HOUR)"
         if timeout "$TASK_TIMEOUT_LONG" "$STRATEGIST_SH" note-review >> "$LOG_FILE" 2>&1; then
             mark_done "strategist-note-review"
@@ -279,8 +279,8 @@ dispatch() {
         fi
     fi
 
-    # --- Экстрактор: inbox-check (каждые 3ч, 07-23 по МСК = 04-20 UTC, TZ-фикс 04.07.2026) ---
-    if (( 10#$HOUR >= 4 && 10#$HOUR <= 20 )); then
+    # --- Экстрактор: inbox-check (каждые 3ч, 07-23) ---
+    if (( 10#$HOUR >= 7 && 10#$HOUR <= 23 )); then
         local elapsed
         elapsed=$(last_run_seconds_ago "extractor-inbox-check")
         if [ "$elapsed" -ge 10800 ]; then

@@ -15,6 +15,19 @@ set -e
 # но prompts/ — read-only, должны браться из FMT через $IWE_TEMPLATE.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Guard: сырой файл в FMT-exocortex-template никогда не подставляет плейсхолдеры
+# (build-runtime.sh подставляет их только в собранную копию под .iwe-runtime/).
+# Запуск отсюда напрямую тихо создаёт директории с буквальным именем "{{HOME_DIR}}"
+# (bug-2026-07-02-home-dir-placeholder-literal-directory.md).
+case "$SCRIPT_DIR" in
+    */FMT-exocortex-template/roles/extractor/scripts)
+        echo "FATAL: extractor.sh запущен из сырого шаблона FMT-exocortex-template — плейсхолдеры не подставлены." >&2
+        echo "  Используй собранную копию: \$IWE_RUNTIME/roles/extractor/scripts/extractor.sh" >&2
+        exit 1
+        ;;
+esac
+
 WORKSPACE="{{WORKSPACE_DIR}}"
 
 # PROMPTS_DIR резолв: $IWE_TEMPLATE → standard FMT → relative (legacy)
@@ -171,11 +184,11 @@ $extra_args"
     notify "KE: $command_file" "Процесс завершён"
 }
 
-# Проверка рабочих часов (07-23 по МСК = 04-20 UTC, TZ-фикс 04.07.2026)
+# Проверка рабочих часов
 is_work_hours() {
     local hour
     hour=$(date +%H)
-    [ "$hour" -ge 4 ] && [ "$hour" -le 20 ]
+    [ "$hour" -ge 7 ] && [ "$hour" -le 23 ]
 }
 
 # Загружаем env

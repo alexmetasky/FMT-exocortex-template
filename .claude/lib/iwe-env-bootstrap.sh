@@ -1,6 +1,6 @@
 #!/bin/bash
 # IWE Environment Bootstrap — Unified Variables
-# Source this in any script that needs workspace or root-level paths
+# Source this in any script that needs workspace/root paths
 # Usage: source "$IWE_SCRIPTS/iwe-env-bootstrap.sh"
 
 # Exit early if already sourced
@@ -29,7 +29,14 @@ if [ -z "${WORKSPACE_DIR:-}" ]; then
     WORKSPACE_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
   elif [[ "$SCRIPT_DIR" =~ /\.claude/ ]]; then
     # We're in .claude/hooks, .claude/lib, .claude/detectors, or .claude/skills
-    WORKSPACE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+    # When bootstrap is sourced from inside FMT-exocortex-template/.claude/,
+    # going up two levels lands inside FMT, not in the real workspace root.
+    _candidate="$(cd "$SCRIPT_DIR/../.." && pwd)"
+    if [[ "$(basename "$_candidate")" == "FMT-exocortex-template" ]]; then
+      WORKSPACE_DIR="$(cd "$_candidate/.." && pwd)"
+    else
+      WORKSPACE_DIR="$_candidate"
+    fi
   elif [[ "$SCRIPT_DIR" =~ /.iwe-runtime/ ]]; then
     # Runtime-generated scripts
     WORKSPACE_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"

@@ -44,12 +44,19 @@ if ! echo "$STAGED" | grep -qE '^current/DayPlan.*\.md$|^current/WeekPlan.*\.md$
   exit 0
 fi
 
-# --- DayPlan Validation (выполняется только если DayPlan-файл существует) ---
-DAYPLAN=$(ls "$GOV_PATH"/current/DayPlan\ *.md 2>/dev/null | head -1)
+# --- DayPlan Validation (выполняется только если DayPlan застейджен в этом коммите) ---
+# issue #248 (тот же корень, что чинили для WeekPlan/WeekReport ниже): `ls | head -1`
+# резолвил алфавитно первый (= самый старый по ISO-дате) DayPlan на диске, а не тот,
+# что реально коммитится — не мигрированный старый DayPlan в current/ ложно блокировал
+# коммит корректного застейженного DayPlan (или коммит WeekPlan, раз DayPlan вообще
+# не участвовал). Резолвим из $STAGED, как WEEKPLAN/WEEKREPORT.
+DAYPLAN_STAGED=$(echo "$STAGED" | grep -E '^current/DayPlan.*\.md$' | sort | tail -1)
+DAYPLAN=""
+[ -n "$DAYPLAN_STAGED" ] && DAYPLAN="$GOV_PATH/$DAYPLAN_STAGED"
 MISSING=()
 ERRORS=()
 
-if [ -n "$DAYPLAN" ]; then
+if [ -n "$DAYPLAN" ] && [ -f "$DAYPLAN" ]; then
 
 # Required sections (parameterized — update this list when format changes).
 # Scout раздел опционален: проверяется отдельно ниже (см. блок "Scout").
@@ -69,10 +76,12 @@ done
 
 # Check mandatory format elements
 
-# --- Ф3 Check 1: ## заголовки секций (Obsidian-совместимый формат вместо <details>) ---
-HEADINGS_COUNT=$(grep -cE '^## ' "$DAYPLAN" 2>/dev/null || true); HEADINGS_COUNT=${HEADINGS_COUNT:-0}
+# --- Ф3 Check 1: заголовки секций — ## (Obsidian-совместимый) или <summary> (сворачиваемые секции, formatting.md) ---
+# issue #221: formatting.md требует <details><summary> для DayPlan/WeekPlan (более новое решение,
+# заменившее старый Obsidian-only запрет на HTML-теги) — считаем оба варианта заголовком секции.
+HEADINGS_COUNT=$(grep -cE '^## |^[[:space:]]*<summary>' "$DAYPLAN" 2>/dev/null || true); HEADINGS_COUNT=${HEADINGS_COUNT:-0}
 if [ "$HEADINGS_COUNT" -lt 3 ]; then
-  ERRORS+=("Секций (##) < 3 найдено: $HEADINGS_COUNT. DayPlan должен иметь структуру из заголовков ##")
+  ERRORS+=("Секций (## или <summary>) < 3 найдено: $HEADINGS_COUNT. DayPlan должен иметь структуру из заголовков секций")
 fi
 
 # --- Ф3 Check 2: непустые обязательные секции ---
@@ -122,16 +131,22 @@ fi
 fi  # endif [ -n "$DAYPLAN" ]
 
 # --- WeekPlan Validation (Ф6.1 WP-265) ---
-WEEKPLAN=$(ls "$GOV_PATH"/current/WeekPlan\ *.md 2>/dev/null | sort | tail -1)
-if [ -n "$WEEKPLAN" ]; then
+# issue #248: раньше валидировался ПОСЛЕДНИЙ WeekPlan на диске по mtime/имени,
+# даже если в этом коммите менялся только DayPlan — старый, не мигрированный
+# WeekPlan блокировал коммиты, к которым не имел отношения. Теперь валидируем
+# ТОЛЬКО если сам WeekPlan застейджен в этом коммите.
+WEEKPLAN_STAGED=$(echo "$STAGED" | grep -E '^current/WeekPlan.*\.md$' | sort | tail -1)
+WEEKPLAN=""
+[ -n "$WEEKPLAN_STAGED" ] && WEEKPLAN="$GOV_PATH/$WEEKPLAN_STAGED"
+if [ -n "$WEEKPLAN" ] && [ -f "$WEEKPLAN" ]; then
   WP_LINES=$(wc -l < "$WEEKPLAN" | tr -d ' ')
   WP_ERRORS=()
   WP_MISSING_LIST=()
 
-  # Детектор (а): >80 строк без достаточного числа ## заголовков (Obsidian-совместимый формат)
-  WP_HEADINGS_COUNT=$(grep -cE '^## ' "$WEEKPLAN" 2>/dev/null || true); WP_HEADINGS_COUNT=${WP_HEADINGS_COUNT:-0}
+  # Детектор (а): >80 строк без достаточного числа заголовков — ## или <summary> (issue #221, см. Check 1 выше)
+  WP_HEADINGS_COUNT=$(grep -cE '^## |^[[:space:]]*<summary>' "$WEEKPLAN" 2>/dev/null || true); WP_HEADINGS_COUNT=${WP_HEADINGS_COUNT:-0}
   if [ "$WP_LINES" -gt 80 ] && [ "$WP_HEADINGS_COUNT" -lt 3 ]; then
-    WP_ERRORS+=("WeekPlan >80 строк ($WP_LINES) но секций (##) < 3 ($WP_HEADINGS_COUNT). Используй ## заголовки для структурирования.")
+    WP_ERRORS+=("WeekPlan >80 строк ($WP_LINES) но секций (## или <summary>) < 3 ($WP_HEADINGS_COUNT). Используй ## заголовки или <details><summary> для структурирования.")
   fi
 
   # Детектор (в): обязательные секции WeekPlan (по templates-dayplan.md)
@@ -149,9 +164,13 @@ if [ -n "$WEEKPLAN" ]; then
   done
 
   # Детектор (г): WeekReport валидация (ОПТ-5 WP-297)
-  WEEKREPORT=$(ls "$GOV_PATH"/current/WeekReport\ *.md 2>/dev/null | sort | tail -1)
-  if [ -n "$WEEKREPORT" ]; then
-    if ! grep -q "Итоги" "$WEEKREPORT"; then
+  # issue #248: та же болезнь — раньше брался ПОСЛЕДНИЙ WeekReport на диске,
+  # который может относиться к уже закрытой прошлой неделе. Валидируем только
+  # если WeekReport сам застейджен в этом коммите.
+  WEEKREPORT_STAGED=$(echo "$STAGED" | grep -E '^current/WeekReport.*\.md$' | sort | tail -1)
+  if [ -n "$WEEKREPORT_STAGED" ]; then
+    WEEKREPORT="$GOV_PATH/$WEEKREPORT_STAGED"
+    if [ -f "$WEEKREPORT" ] && ! grep -q "Итоги" "$WEEKREPORT"; then
       WP_MISSING_LIST+=("Итоги (в WeekReport)")
     fi
   fi
