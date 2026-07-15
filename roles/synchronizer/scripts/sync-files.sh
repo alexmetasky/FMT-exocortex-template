@@ -51,3 +51,16 @@ done
 if [ "$SYNCED" -gt 0 ]; then
   echo "$(date '+%Y-%m-%d %H:%M:%S') [sync-files] synced $SYNCED file(s)"
 fi
+
+# Heartbeat: раз в час отмечаем "жив", чтобы тишина в логе не путалась
+# с остановкой самого сторожа (различение "внутренний алерт != внешний heartbeat")
+HEARTBEAT_FILE="${REPO_PATH}/exocortex/.sync-files-last-heartbeat"
+NOW_EPOCH=$(date +%s)
+LAST_EPOCH=0
+if [ -f "$HEARTBEAT_FILE" ]; then
+  LAST_EPOCH=$(cat "$HEARTBEAT_FILE" 2>/dev/null || echo 0)
+fi
+if [ $((NOW_EPOCH - LAST_EPOCH)) -ge 3600 ]; then
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [sync-files] heartbeat: жив, синхронизировать нечего"
+  echo "$NOW_EPOCH" > "$HEARTBEAT_FILE"
+fi

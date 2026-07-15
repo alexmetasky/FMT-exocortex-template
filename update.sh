@@ -101,6 +101,29 @@ is_author_mode() {
     grep -qE '^author_mode:[[:space:]]*true' "$params_file"
 }
 
+# ALWAYS_CHECK_DIVERGENCE — пути, для которых git-diff проверка (см. author_diverged
+# ниже) применяется НЕЗАВИСИМО от author_mode. Нужен пилотам вроде этой инсталляции:
+# ведут свой форк FMT-exocortex-template с точечными локальными правками (напр.
+# sync-files.sh heartbeat, коммит b502130, разрешение пилота 2026-07-11), но
+# params.yaml.author_mode: false (не считают себя "автором шаблона" в целом).
+# Без этого списка апдейт 2026-07-14 (v0.35.5) тихо затёр heartbeat-логику —
+# см. project_sync-files-heartbeat.md. Тот же git-based критерий, что и у
+# author_diverged (dirty/untracked ИЛИ закоммичено локально, но не в origin) —
+# не полный allowlist-обход принципа "git — арбитр, не список путей" (issue #238),
+# а узкое явное расширение зоны действия того же критерия на конкретные пути.
+ALWAYS_CHECK_DIVERGENCE=(
+    "roles/synchronizer/scripts/sync-files.sh"
+)
+
+is_always_checked() {
+    local fpath="$1"
+    local p
+    for p in "${ALWAYS_CHECK_DIVERGENCE[@]}"; do
+        [ "$fpath" = "$p" ] && return 0
+    done
+    return 1
+}
+
 # author_diverged FPATH — author_mode: SCRIPT_DIR — git-клон этого самого шаблона,
 # из которого качается upstream. Git — точный арбитр «locally stale vs автор доработал»,
 # не список защищённых путей (issue #238, тот же класс бага, что стёр 66 файлов —
@@ -111,7 +134,7 @@ is_author_mode() {
 _AUTHOR_FETCH_DONE=false
 author_diverged() {
     local fpath="$1"
-    is_author_mode || return 1
+    is_author_mode || is_always_checked "$fpath" || return 1
     git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
     if [ "$_AUTHOR_FETCH_DONE" = false ]; then
         git -C "$SCRIPT_DIR" fetch --quiet origin "$BRANCH" 2>/dev/null || true
