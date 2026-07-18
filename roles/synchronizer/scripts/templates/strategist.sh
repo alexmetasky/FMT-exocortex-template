@@ -35,10 +35,15 @@ table_to_list() {
     local file="$1"
     local section="$2"
 
+    # Формат таблицы «План на сегодня» (day-open/templates.md, закреплён с WP-264):
+    # | 🚦 | ТВС | # | РП | h | Статус | — 6 полей, не 5. Парсер раньше ждал
+    # num|rp|budget|priority|status (5 полей без светофора) и всегда читал
+    # "status" из позиции budget → всегда ⬜ независимо от реального статуса
+    # (обнаружено 18.07.2026, см. inbox/bugs/bug-2026-07-18-tg-digest-always-pending.md).
     sed -n -E "/^## ${section}|<summary>.*${section}/,/^---|^<\/details>/p" "$file" \
         | grep '^|' \
         | tail -n +3 \
-        | while IFS='|' read -r _ num rp budget priority status _rest; do
+        | while IFS='|' read -r _ light tvs num rp budget status _rest; do
             num=$(echo "$num" | xargs)
             rp=$(echo "$rp" | xargs | sed 's/\*\*//g')
             budget=$(echo "$budget" | xargs | sed 's/\*\*//g')
