@@ -44,11 +44,17 @@ table_to_list() {
         | grep '^|' \
         | tail -n +3 \
         | while IFS='|' read -r _ light tvs num rp budget status _rest; do
+            light=$(echo "$light" | xargs)
             num=$(echo "$num" | xargs)
             rp=$(echo "$rp" | xargs | sed 's/\*\*//g')
             budget=$(echo "$budget" | xargs | sed 's/\*\*//g')
             status=$(echo "$status" | xargs)
 
+            # Светофор (light, 🔴🟡🟢⚫⚪) и статус-иконка — две разные оси: приоритет
+            # vs стадия выполнения. GitHub-таблица показывает обе, дайджест раньше
+            # терял light (читался в переменную, но не выводился) — правка 18.07.2026,
+            # 3-й проход, по прямому сравнению пилотом со скриншотом GitHub-таблицы.
+            #
             # Словарь статусов в DayPlan шире, чем изначально предполагалось
             # (обнаружено 18.07.2026, второй проход): помимо pending/in_progress/done
             # встречаются blocked, встроен, актуален, проверено, идея — не сваливать
@@ -62,7 +68,7 @@ table_to_list() {
                 *pending*|*идея*) icon="⬜" ;;
             esac
 
-            printf "%s #%s %s (%s)\n" "$icon" "$num" "$rp" "$budget"
+            printf "%s%s #%s %s (%s)\n" "$light" "$icon" "$num" "$rp" "$budget"
         done
 }
 
