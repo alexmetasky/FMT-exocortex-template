@@ -15,10 +15,11 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONFIG_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)/memory"
-# WP-273 0.29.4 R6.1 fix (issue #271): runtime-резолв вместо build-time {{WORKSPACE_DIR}} — как в strategist.sh.
+# WP-273 0.29.4 R6.1 fix (issue #271, #273): runtime-резолв от IWE_WORKSPACE, не от SCRIPT_DIR — как в strategist.sh.
+# Иначе скрипт, запущенный из копии шаблона (FMT-exocortex-template/, .iwe-runtime/), читает
+# apстрим-дефолты вместо персонального memory/day-rhythm-config.yaml пользователя.
 WORKSPACE="${IWE_WORKSPACE:-$HOME/IWE}"
+CONFIG_DIR="$WORKSPACE/memory"
 LOG_DIR="$HOME/logs/synchronizer"
 DATE=$(date +%Y-%m-%d)
 LOG_FILE="$LOG_DIR/video-scan-$DATE.log"
@@ -127,7 +128,7 @@ find_videos() {
         # macOS-совместимый вывод (без GNU -printf)
         while IFS= read -r -d '' file; do
             local mtime
-            mtime=$(stat -f %m "$file" 2>/dev/null || stat -c %Y "$file" 2>/dev/null || echo 0)
+            mtime=$(stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null || echo 0)
             echo "$mtime $file"
         done < <(find "${find_args[@]}" -print0 2>/dev/null)
     done | sort -rn | cut -d' ' -f2-
@@ -246,7 +247,7 @@ scan() {
         local has_tr="нет"
         has_transcript "$video_path" && has_tr="да"
         local age_days
-        age_days=$(( ($(date +%s) - $(stat -f %m "$video_path" 2>/dev/null || stat -c %Y "$video_path" 2>/dev/null || echo 0)) / 86400 ))
+        age_days=$(( ($(date +%s) - $(stat -c %Y "$video_path" 2>/dev/null || stat -f %m "$video_path" 2>/dev/null || echo 0)) / 86400 ))
 
         # Подсчёт
         if [ "$wp_match" = "unmatched" ]; then
