@@ -1,7 +1,6 @@
 ---
-valid_from: 2026-06-21
+valid_from: 2026-04-06
 originSessionId: 9a0e726a-951e-4408-9e02-94d7eeffbf74
-last_sync_commit: fe0df9dcb06cfc87c8a6cb2f7cce3ac0d3b64d5e
 
 type: reference
 horizon: warm
@@ -9,14 +8,15 @@ domains: [reference]
 status: active
 owner: user
 schema_version: 1
+fpf_version: "44dd88188a07646ef23aca32627a3f670525853f"
+fpf_synced_at: 2026-07-13
 
 name: "fpf-reference"
 description: "Справочник FPF паттернов применимых в IWE: структура, ключевые Part C (C.11-C.28), трансляция терминов"
 ---
 # FPF (First Principles Framework) — справочник
 
-> Источник: `{{HOME_DIR}}/IWE/FPF/FPF-Spec.md` (4.6 MB, ~83000 строк, commit `093d30e`)
-> Автообновление: см. WP-364 Direction 1 «Конвейер синхронизации FPF upstream»
+> Источник: `{{HOME_DIR}}/IWE/FPF/FPF-Spec.md` (4.6 MB, ~50000 строк)
 
 ## Когда читать FPF
 
@@ -28,7 +28,7 @@ description: "Справочник FPF паттернов применимых �
 ## Как читать
 
 - НЕ читать целиком
-- Сначала оглавление (первые 300 строк), потом нужную секцию
+- Сначала оглавление (первые 200 строк), потом нужную секцию
 - Grep для конкретных паттернов (например, `A.7` для Strict Distinction)
 
 ## Структура FPF
@@ -48,22 +48,10 @@ description: "Справочник FPF паттернов применимых �
 | C.11 | Decision Theory (Decsn-CAL) | Stable | Выбор альтернатив в ArchGate, Strategy Session |
 | C.16 | MM-CHR Measurement & Metrics | Stable | Измерения RCS, baseline, показатели пилота |
 | C.19 | Explore–Exploit Governor | Stable | Pool-политика экспериментов и методов |
-| C.21 | Discipline-CHR (Field Health & Structure) | Stable | Здоровье научного поля, воспроизводимость, стандартизация |
 | C.24 | Agentic Tool-Use & Call-Planning | Stable | Протокол Claude Code tool-use бюджет |
 | C.26 | Quantum-Like Modeling Lens | Stable | Probe-coupled взаимодействия, order effects |
 | C.27 | Temporal Claim Adequacy | Stable | Утверждения о скорости, ритме, трендах |
 | C.28 | **CausalUse-CAL** | Stable | **Причинные утверждения: M1 улучшает X, рычаг даёт Y** |
-
-### Новые и обновлённые паттерны (май–июнь 2026)
-
-| Код | Название | Статус | Почему важно для IWE |
-|-----|----------|--------|---------------------|
-| C.2.P | Epistemic Precision Restoration | Stable | Восстановление точности эпистемы: EntityOfConcern, ClaimGraph, Viewpoint |
-| A.19.ECS | Evaluation CharacteristicSpace Construction | Stable | Построение пространства характеристик для оценки объектов |
-| A.19.SPR | State-Family Precision Restoration | Stable | Восстановление точности состояний: status, posture, readiness |
-| E.18.1 | Problem-to-Work Carry-Through (P2W) | Stable | Как проблема переносится в работу без преждевременного выбора метода (обобщено с «только принципы» на любую проблему, 12.07.2026) |
-| E.21 | FPF Pattern-Quality Evaluation CharacteristicSpace | Stable | Оценка качества паттернов FPF для declared reader/use/scope |
-| F.19 | Ontology-First Plain Technical Rewriting | Stable | Онтология-first переписывание: phrase apparatus, boilerplate, negative catalogue |
 
 ## Системная терминология
 
@@ -72,7 +60,6 @@ description: "Справочник FPF паттернов применимых �
 | Надсистема | Suprasystem | Содержит SoI (∋) |
 | Целевая система | System-of-Interest (SoI) | То, что создаём |
 | Система создания | Constructor | Создаёт SoI (→) |
-| Объект озабоченности | EntityOfConcern | То, о чём речь в эпистеме; ≠ Description |
 
 ## Универсальные различения
 
@@ -86,7 +73,6 @@ description: "Справочник FPF паттернов применимых �
 | Знание ≠ Обучение | Pack vs курс |
 | Знание ≠ Информация | Формализовано vs сырые данные |
 | Виды ≠ Характеристики | Классификация vs измеряемое качество |
-| EntityOfConcern ≠ Description | Объект озабоченности ≠ его описание (A.7, A.6.2–A.6.4) |
 
 ## Принципы работы
 
@@ -94,10 +80,9 @@ description: "Справочник FPF паттернов применимых �
 |---------|-----|----------|
 | Холонический подход | A.1 | Всё — часть и целое одновременно |
 | Ограниченный контекст | A.1.1 | Термин определён в границах контекста |
-| Строгие различения | A.7 | Роль ≠ Метод ≠ Работа; EntityOfConcern ≠ Description |
+| Строгие различения | A.7 | Роль ≠ Метод ≠ Работа |
 | ADI-цикл | B.5 | Абдукция → Дедукция → Индукция |
 | CausalUse-CAL | C.28 | Причинные утверждения: рунг, доказательная база, допустимое использование |
-| Epistemic Precision Restoration | C.2.P | Восстановление точности эпистемических формулировок |
 
 ## C.28 CausalUse-CAL — практическое применение в IWE
 
@@ -131,7 +116,7 @@ description: "Справочник FPF паттернов применимых �
 |---------|----------------|---------|
 | WP-151 рычаги (M1/M4) | «M1 поднимает собранность» — рунг 2 без доказательства | Переписать как рунг 1: «ассоциировано с ростом baseline в выборке N» |
 | Портной рекомендации | «Добавь помидоры — улучшишь ступень» — rung 2 pretend | Добавить: «по корреляции в N=k пилотов, интервенционных данных нет» |
-| ArchGate аргументы | «Если внедрить X, получим Y» — рунг 3 без SCM | Явно указать рунг, basis, unsupportedUse |
+| ArchGate аргументы | «Если внедрить X, получим Y» — rung 3 без SCM | Явно указать рунг, basis, unsupportedUse |
 | Strategy Session | «Эта практика сработала в апреле» | Rung 1 (ассоциация), rival causes не исключены |
 | Измерения dt_snapshot_rcs | Snapshot ≠ каузальное доказательство | basis = observationalAssociation, не interventional |
 
@@ -156,13 +141,20 @@ description: "Справочник FPF паттернов применимых �
 | ADI-цикл (B.5) | Гипотеза → проверка логикой → проверка данными | Принятие решений (/think) |
 | Lawful Comparison (A.19) | Сравнение вариантов по одинаковым критериям | Выбор архитектуры (/archgate) |
 | Strict Distinction (A.7) | Разные вещи — разные имена. Не смешивать в одном типе/enum | Code review, именование |
-| EntityOfConcern | Объект озабоченности — то, о чём речь в эпистеме; ≠ Description | C.2.P, A.6.2–A.6.4 |
-| P2W (E.18.1) | Problem-to-Work: как проблема (не только с принципами) становится работой без преждевременного выбора метода | Стратегические сессии, ArchGate |
-| ECS (A.19.ECS) | Evaluation CharacteristicSpace: пространство характеристик оценки | Метрики, benchmark, QA |
+
+## Терминология ailev ↔ IWE (DPF/SPF/TPF/LPF, WP-448 Ф8)
+
+> Анатолий Левенчук (ailev) переименовал Second Principles Framework в DPF (Domain Principles Framework), стек `FPF → DPF → LPF`. В IWE переименование не планируется — только сноски (CLAUDE.md §1, SPF/README.md). Таблица ниже — словарь перевода при чтении его текстов.
+
+| ailev-термин | IWE-эквивалент | Примечание |
+|---|---|---|
+| DPF (Domain Principles Framework) | Pack (SPF-инстанс) | формальная эквивалентность, не переименование |
+| TPF (Third Principles Framework) | DS + операционный слой агента | процессный TPF vs контентный TPF — см. [[TPF ≠ DS]] |
+| LPF (практики роли конкретного носителя) | партикулярные практики роли (Lifework/ + оперативные фрагменты) | cross-cutting классификация фрагментов, не отдельный контейнер (WP-448 Ф11) |
+| `E.4.DPF` (authoring-каркас) | `SPF/pack-template/` + `SPF/process/01-11` | оба задают форму и процесс наполнения домена |
+| NSTD (слоты метод-карточки: Forces, Bias-Annotation, ...) | `_method-card-template.md` (обогащение — WP-448 Ф9) | наш формат карточки метода обогащается двумя разделами по образцу NSTD |
+| Нарративизация (narrativization) | Фабрика руководств (WP-364) | метод превращения структуры в учебный текст — берём по ссылке, без дублирования содержания |
 
 ## Обновление
 
-- **Ручное:** `cd {{HOME_DIR}}/IWE/FPF && git pull`
-- **Автоматическое:** WP-364 Direction 1 «Конвейер синхронизации FPF upstream» — еженедельный delta-report + автообновление кеша
-- **Текущая версия:** sync commit `44dd88188a07646ef23aca32627a3f670525853f` (2026-07-13)
-- **Словарь дрейфа терминов:** `memory/fpf-term-map.yaml` (WP-481 Ф11) — проверять после каждого pull, не чинить молча найденное
+Периодически: `cd {{HOME_DIR}}/IWE/FPF && git pull`. FPF обновляется ~раз в 2 недели (апстрим). После pull — проверить `memory/fpf-term-map.yaml` на новые переименования (WP-481 Ф11).
