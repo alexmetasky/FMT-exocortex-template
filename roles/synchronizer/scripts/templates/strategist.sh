@@ -49,11 +49,17 @@ table_to_list() {
             budget=$(echo "$budget" | xargs | sed 's/\*\*//g')
             status=$(echo "$status" | xargs)
 
+            # Словарь статусов в DayPlan шире, чем изначально предполагалось
+            # (обнаружено 18.07.2026, второй проход): помимо pending/in_progress/done
+            # встречаются blocked, встроен, актуален, проверено, идея — не сваливать
+            # их все молча в ⬜ вместе с реальным pending.
             local icon="⬜"
             case "$status" in
-                *done*|*"✅"*) icon="✅" ;;
-                *in_progress*|*in.progress*) icon="🔄" ;;
-                *pending*) icon="⬜" ;;
+                *done*|*"✅"*|*актуален*|*проверено*) icon="✅" ;;
+                *in_progress*|*in.progress*|*"🔄"*) icon="🔄" ;;
+                *blocked*) icon="⛔" ;;
+                *встроен*) icon="🔁" ;;
+                *pending*|*идея*) icon="⬜" ;;
             esac
 
             printf "%s #%s %s (%s)\n" "$icon" "$num" "$rp" "$budget"
