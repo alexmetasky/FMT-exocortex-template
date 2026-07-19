@@ -33,12 +33,24 @@ HUMAN_MODE=false
 IWE_BASE="${IWE_BASE:-$HOME/IWE}"
 DS_STRATEGY="$IWE_BASE/${IWE_GOVERNANCE_REPO:-DS-strategy}"
 
+# Cross-platform mtime. BSD/macOS stat uses `-f %m`, GNU/Linux uses `-c %Y` —
+# calling the wrong one doesn't just fail: GNU `stat -f` prints filesystem info
+# to stdout despite a non-zero exit code, corrupting any `stat -f || stat -c`
+# fallback chain that captures stdout.
+_file_mtime() {
+  local f="$1"
+  case "$(uname -s)" in
+    Darwin) stat -f %m "$f" 2>/dev/null || echo 0 ;;
+    *)      stat -c %Y "$f" 2>/dev/null || echo 0 ;;
+  esac
+}
+
 # === 1. Scheduler pulse (primary: локальный файл, fallback: статус launchctl) ===
 scheduler_pulse() {
   local pulse_file="$DS_STRATEGY/current/.scheduler-last-run"
   if [ -f "$pulse_file" ]; then
     local last_ts
-    last_ts=$(stat -f %m "$pulse_file" 2>/dev/null || stat -c %Y "$pulse_file" 2>/dev/null || echo 0)
+    last_ts=$(_file_mtime "$pulse_file")
     local now_ts age_hours
     now_ts=$(date +%s)
     age_hours=$(( (now_ts - last_ts) / 3600 ))
@@ -50,8 +62,10 @@ scheduler_pulse() {
       echo "stale:$(( age_hours / 24 ))d"
     fi
   else
-    # Fallback: проверить launchctl
-    if launchctl list 2>/dev/null | grep -qE "iwe\.scheduler|iwe\.feedback-watchdog"; then
+    # Fallback: macOS → launchctl, Linux → crontab (нет launchctl как класса)
+    if command -v launchctl >/dev/null 2>&1 && launchctl list 2>/dev/null | grep -qE "iwe\.scheduler|iwe\.feedback-watchdog"; then
+      echo "registered-no-pulse"
+    elif command -v crontab >/dev/null 2>&1 && crontab -l 2>/dev/null | grep -qE "day-open-pipeline-cron\.sh|feedback-triage|feedback-watchdog"; then
       echo "registered-no-pulse"
     else
       echo "missing"
@@ -72,9 +86,13 @@ ke_stats() {
     echo "0 0"
     return
   fi
-  # oldest age в днях через stat
-  local oldest_ts now_ts age_days
-  oldest_ts=$(find "$ke_dir" -maxdepth 1 -type f -name "*.md" -exec stat -f "%m" {} \; 2>/dev/null | sort -n | head -1)
+  # oldest age в днях через stat (cross-platform: BSD `-f "%m"` vs GNU `-c "%Y"`)
+  local oldest_ts now_ts age_days stat_fmt
+  case "$(uname -s)" in
+    Darwin) stat_fmt=(-f "%m") ;;
+    *)      stat_fmt=(-c "%Y") ;;
+  esac
+  oldest_ts=$(find "$ke_dir" -maxdepth 1 -type f -name "*.md" -exec stat "${stat_fmt[@]}" {} \; 2>/dev/null | sort -n | head -1)
   if [ -z "$oldest_ts" ]; then
     echo "$count -1"
     return

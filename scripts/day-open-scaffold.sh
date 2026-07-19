@@ -537,6 +537,18 @@ render_repo_activity() {
 }
 
 # --- Section: IWE за ночь (светофор) ---
+# Cross-platform mtime (unix epoch seconds). BSD/macOS stat uses `-f %m`,
+# GNU/Linux stat uses `-c %Y` — calling the wrong one doesn't just fail,
+# GNU `stat -f` prints filesystem info to stdout despite exit 1, corrupting
+# any `$(stat -f ... || stat -c ...)` fallback chain that captures stdout.
+_file_mtime() {
+  local f="$1"
+  case "$(uname -s)" in
+    Darwin) stat -f %m "$f" 2>/dev/null || echo 0 ;;
+    *)      stat -c %Y "$f" 2>/dev/null || echo 0 ;;
+  esac
+}
+
 render_iwe_status() {
   echo "| Подсистема | Статус | Детали |"
   echo "|------------|--------|--------|"
@@ -608,13 +620,20 @@ render_iwe_status() {
   local watchdog_log="$HOME/logs/synchronizer/feedback-watchdog-$DATE.log"
   local feedback_triage_log="$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/logs/feedback-triage.log"
   local last_watchdog_log
-  last_watchdog_log=$(ls -t "$HOME/logs/synchronizer/feedback-watchdog-"*.log 2>/dev/null | head -1 || echo "")
+  last_watchdog_log=$(ls -t "$HOME/logs/synchronizer/feedback-watchdog-"*.log "$HOME/logs/synchronizer/scheduler-"*.log 2>/dev/null | head -1 || echo "")
   local last_feedback_triage_log
   last_feedback_triage_log=$(ls -t "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/logs/feedback-triage"*.log 2>/dev/null | head -1 || echo "")
   # issue #261: старая маска ловила только legacy-метки (iwe.scheduler и т.п.), под которые
   # не попадают ни current per-role юниты, ни даже шаблонный com.exocortex.scheduler.plist.
+  # Cross-platform (issue: launchctl-only детектор давал ложный Mode A на Linux — cron
+  # реально работает, но launchctl там отсутствует как таковой):
+  #   macOS → launchctl list (LaunchAgents)
+  #   Linux → crontab -l (day-open-pipeline-cron.sh считается эквивалентом scheduler-юнита,
+  #           т.к. именно он и производит DayPlan/scheduler report на этой платформе)
   local has_launchd_unit=false
-  if launchctl list 2>/dev/null | grep -qE "com\.(exocortex\.scheduler|strategist\.morning|strategist\.weekreview|extractor\.inbox-check)"; then
+  if command -v launchctl >/dev/null 2>&1 && launchctl list 2>/dev/null | grep -qE "com\.(exocortex\.scheduler|strategist\.morning|strategist\.weekreview|extractor\.inbox-check)"; then
+    has_launchd_unit=true
+  elif command -v crontab >/dev/null 2>&1 && crontab -l 2>/dev/null | grep -qE "day-open-pipeline-cron\.sh|feedback-triage|feedback-watchdog"; then
     has_launchd_unit=true
   fi
 
@@ -642,7 +661,7 @@ render_iwe_status() {
       last_log_file="$last_watchdog_log"
     fi
     if [ -n "$last_log_file" ]; then
-      last_log_age_days=$(( ( $(date +%s) - $(stat -f %m "$last_log_file" 2>/dev/null || stat -c %Y "$last_log_file" 2>/dev/null || echo 0) ) / 86400 ))
+      last_log_age_days=$(( ( $(date +%s) - $(_file_mtime "$last_log_file") ) / 86400 ))
     fi
     if [ "$last_log_age_days" -le 1 ] || [ "$last_log_age_days" -eq -1 ]; then
       echo "| Scheduler/триаж | 🟢 | Mode B: feedback-triage зарегистрирован, последний лог присутствует (нет жалоб = тишина) |"
@@ -653,9 +672,9 @@ render_iwe_status() {
     # Mode A: cron не запущен (нет юнита в launchctl) + нет свежих логов
     local last_log_age_days="∞"
     if [ -n "$last_feedback_triage_log" ]; then
-      last_log_age_days=$(( ( $(date +%s) - $(stat -f %m "$last_feedback_triage_log" 2>/dev/null || stat -c %Y "$last_feedback_triage_log" 2>/dev/null || echo 0) ) / 86400 ))
+      last_log_age_days=$(( ( $(date +%s) - $(_file_mtime "$last_feedback_triage_log") ) / 86400 ))
     elif [ -n "$last_watchdog_log" ]; then
-      last_log_age_days=$(( ( $(date +%s) - $(stat -f %m "$last_watchdog_log" 2>/dev/null || stat -c %Y "$last_watchdog_log" 2>/dev/null || echo 0) ) / 86400 ))
+      last_log_age_days=$(( ( $(date +%s) - $(_file_mtime "$last_watchdog_log") ) / 86400 ))
     fi
     echo "| Scheduler/триаж | 🔴 | **Mode A** (cron не отработал): юнит feedback-triage не зарегистрирован в launchctl, последний лог ${last_log_age_days}д назад |"
 
