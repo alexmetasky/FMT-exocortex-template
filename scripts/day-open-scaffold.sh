@@ -1150,7 +1150,7 @@ $SELF_DEV_BLOCK
 ЗАПРЕЩЕНО: включать в план РП, закрытые вчера (есть в «закрыто вчера» + ✅ в REGISTRY). Например, WP-362 закрыт — его нет в плане.
 
 После priorities.yaml — дополнить из carry-over и SWEEP_WP_LIST теми РП, которых нет в priorities.yaml и которые ещё open.
-Применить mandatory_daily_wps + daily_checkpoint_wps из day-rhythm-config.yaml.
+Если в day-rhythm-config.yaml задан ключ mandatory_daily_wps — применить его (список РП, обязательных каждый день). Ключ отсутствует → не выводить строку Mandatory check вообще, не подставлять литерал.
 KE-строка: bash $TEMPLATE_SCRIPTS_DIR/ke-queue-stats.sh --dayplan-row (реальный бюджет, не литерал «1h»).
 Active WPs to include (из sweep + WeekPlan union): $SWEEP_WP_LIST
 -->
@@ -1169,8 +1169,6 @@ ${STRATEGY_CONTEXT:-не найдены}
 > ТВС: **В** = Важное (развитие / критичное для R1-R6) · **Т** = Текущее (плановая работа) · **С** = Срочное (угроза конвейеру, дублируется в шапке 🚨)
 
 **Бюджет дня:** <!-- PENDING: budget — посчитать после плана, формат см. templates-dayplan.md (бюджет РП всего / физ / мультипликатор). -->
-
-**Mandatory check:** WP-7 (техдолг бота, ≥30 мин) + ≥1 контентный РП — <!-- PENDING: проверить наличие в плане -->
 
 **Carry-over из Day Close вчера ($YDAY):**
 ${DAY_CLOSE_CARRY_OVER:-нет (Day Close не найден)}
