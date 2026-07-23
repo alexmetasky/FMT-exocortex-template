@@ -29,6 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # iwe-env-bootstrap.sh sets its own top-level SCRIPT_DIR when sourced below, clobbering
 # ours — save this script's own directory under a distinct name first (issue #262).
 TEMPLATE_SCRIPTS_DIR="$SCRIPT_DIR"
+source "$TEMPLATE_SCRIPTS_DIR/lib/common.sh"
 # Bootstrap sets IWE_ROOT/WORKSPACE_DIR/etc. It may be ABSENT on some hosts — tsekh-1's
 # extension sync does not copy .claude/lib/ — so source it only if present and never let
 # its absence abort the scaffold (the old `|| exit 1` killed every run on tsekh-1, which
@@ -537,18 +538,6 @@ render_repo_activity() {
 }
 
 # --- Section: IWE за ночь (светофор) ---
-# Cross-platform mtime (unix epoch seconds). BSD/macOS stat uses `-f %m`,
-# GNU/Linux stat uses `-c %Y` — calling the wrong one doesn't just fail,
-# GNU `stat -f` prints filesystem info to stdout despite exit 1, corrupting
-# any `$(stat -f ... || stat -c ...)` fallback chain that captures stdout.
-_file_mtime() {
-  local f="$1"
-  case "$(uname -s)" in
-    Darwin) stat -f %m "$f" 2>/dev/null || echo 0 ;;
-    *)      stat -c %Y "$f" 2>/dev/null || echo 0 ;;
-  esac
-}
-
 render_iwe_status() {
   echo "| Подсистема | Статус | Детали |"
   echo "|------------|--------|--------|"
@@ -620,20 +609,16 @@ render_iwe_status() {
   local watchdog_log="$HOME/logs/synchronizer/feedback-watchdog-$DATE.log"
   local feedback_triage_log="$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/logs/feedback-triage.log"
   local last_watchdog_log
-  last_watchdog_log=$(ls -t "$HOME/logs/synchronizer/feedback-watchdog-"*.log "$HOME/logs/synchronizer/scheduler-"*.log 2>/dev/null | head -1 || echo "")
+  last_watchdog_log=$(ls -t "$HOME/logs/synchronizer/feedback-watchdog-"*.log 2>/dev/null | head -1 || echo "")
   local last_feedback_triage_log
   last_feedback_triage_log=$(ls -t "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/logs/feedback-triage"*.log 2>/dev/null | head -1 || echo "")
   # issue #261: старая маска ловила только legacy-метки (iwe.scheduler и т.п.), под которые
   # не попадают ни current per-role юниты, ни даже шаблонный com.exocortex.scheduler.plist.
-  # Cross-platform (issue: launchctl-only детектор давал ложный Mode A на Linux — cron
-  # реально работает, но launchctl там отсутствует как таковой):
-  #   macOS → launchctl list (LaunchAgents)
-  #   Linux → crontab -l (day-open-pipeline-cron.sh считается эквивалентом scheduler-юнита,
-  #           т.к. именно он и производит DayPlan/scheduler report на этой платформе)
+  # WP-5 Ubuntu-audit факт #4: launchctl unconditionally also meant Linux always saw this
+  # as false (launchctl doesn't exist there) — iwe_scheduler_active() (lib/common.sh)
+  # branches launchd/systemd by what's actually on PATH.
   local has_launchd_unit=false
-  if command -v launchctl >/dev/null 2>&1 && launchctl list 2>/dev/null | grep -qE "com\.(exocortex\.scheduler|strategist\.morning|strategist\.weekreview|extractor\.inbox-check)"; then
-    has_launchd_unit=true
-  elif command -v crontab >/dev/null 2>&1 && crontab -l 2>/dev/null | grep -qE "day-open-pipeline-cron\.sh|feedback-triage|feedback-watchdog"; then
+  if iwe_scheduler_active; then
     has_launchd_unit=true
   fi
 
@@ -661,26 +646,40 @@ render_iwe_status() {
       last_log_file="$last_watchdog_log"
     fi
     if [ -n "$last_log_file" ]; then
-      last_log_age_days=$(( ( $(date +%s) - $(_file_mtime "$last_log_file") ) / 86400 ))
+      last_log_age_days=$(( ( $(date +%s) - $(stat -f %m "$last_log_file" 2>/dev/null || stat -c %Y "$last_log_file" 2>/dev/null || echo 0) ) / 86400 ))
     fi
     if [ "$last_log_age_days" -le 1 ] || [ "$last_log_age_days" -eq -1 ]; then
       echo "| Scheduler/триаж | 🟢 | Mode B: feedback-triage зарегистрирован, последний лог присутствует (нет жалоб = тишина) |"
     else
       echo "| Scheduler/триаж | 🟡 | Mode B: feedback-triage зарегистрирован, но лог не обновлялся ${last_log_age_days}д — возможно cron skipped |"
     fi
+  elif [ "$has_launchd_unit" = "true" ] && [ -z "$last_watchdog_log" ] && [ -z "$last_feedback_triage_log" ]; then
+    # issue #292 follow-up to #261: юнит(ы) планировщика зарегистрированы (кто-то
+    # разворачивал роли на этой машине), но НИ ОДНОГО лога feedback-triage не было
+    # НИКОГДА (не только сегодня/недавно — ls -t по всей истории пуст). Это не
+    # «cron не отработал» (Mode A), это «роль feedback-triage не развёрнута на
+    # этой инсталляции» — отсутствие роли не авария, ⚪. Настоящий Mode A (cron
+    # infra целиком отсутствует) остаётся ниже, под has_launchd_unit=false.
+    echo "| Scheduler/триаж | ⚪ | роль feedback-triage не развёрнута на этой машине (юнит планировщика есть, логов триажа не было никогда) |"
   else
     # Mode A: cron не запущен (нет юнита в launchctl) + нет свежих логов
     local last_log_age_days="∞"
     if [ -n "$last_feedback_triage_log" ]; then
-      last_log_age_days=$(( ( $(date +%s) - $(_file_mtime "$last_feedback_triage_log") ) / 86400 ))
+      last_log_age_days=$(( ( $(date +%s) - $(stat -f %m "$last_feedback_triage_log" 2>/dev/null || stat -c %Y "$last_feedback_triage_log" 2>/dev/null || echo 0) ) / 86400 ))
     elif [ -n "$last_watchdog_log" ]; then
-      last_log_age_days=$(( ( $(date +%s) - $(_file_mtime "$last_watchdog_log") ) / 86400 ))
+      last_log_age_days=$(( ( $(date +%s) - $(stat -f %m "$last_watchdog_log" 2>/dev/null || stat -c %Y "$last_watchdog_log" 2>/dev/null || echo 0) ) / 86400 ))
     fi
     echo "| Scheduler/триаж | 🔴 | **Mode A** (cron не отработал): юнит feedback-triage не зарегистрирован в launchctl, последний лог ${last_log_age_days}д назад |"
 
-    # Auto-create incident-файл если ещё нет за сегодня
+    # Auto-create incident-файл если ещё нет за сегодня И не подавлен явно (issue
+    # #292: имя файла содержит дату — [ ! -f incident_file ] никогда не срабатывало
+    # на «сегодня другая дата» повторно, `status: deferred` в файле вчерашней даты
+    # не переживал смену даты. Отдельный маркер без даты — переживает.
+    local incident_suppress="$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/inbox/.incident-suppress-scheduler-cron-not-fired"
     local incident_file="$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/inbox/INCIDENT-scheduler-cron-not-fired-$DATE.md"
-    if [ ! -f "$incident_file" ]; then
+    if [ -f "$incident_suppress" ]; then
+      echo "  (инцидент подавлен: $incident_suppress — удалите файл, чтобы возобновить авто-создание)"
+    elif [ ! -f "$incident_file" ]; then
       mkdir -p "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/inbox"
       cat > "$incident_file" <<INCEOF
 ---
@@ -712,8 +711,13 @@ auto_generated: true
 
 ## Auto-generation note
 
-Этот файл создан автоматически day-open-scaffold.sh при каждом обнаружении Mode A.
-Если решено отложить fix — поставить \`status: deferred\` и убрать \`auto_generated\` поле, чтобы скаффолд не перезаписывал контекст.
+Этот файл создан автоматически day-open-scaffold.sh при каждом обнаружении Mode A — имя файла содержит дату, поэтому завтрашний Mode A создаст НОВЫЙ файл с новой датой независимо от того, что вы сделаете с этим (правка frontmatter внутри датированного файла не переживает смену даты — issue #292).
+
+Если решено отложить fix и не получать новый инцидент-файл каждый день — создайте маркер:
+\`\`\`bash
+touch "\${IWE_GOVERNANCE_REPO:-DS-strategy}/inbox/.incident-suppress-scheduler-cron-not-fired"
+\`\`\`
+Удалите маркер, чтобы возобновить авто-создание.
 INCEOF
     fi
   fi
@@ -741,10 +745,13 @@ INCEOF
   # issue #241 (остаточная дыра): вызов делает сетевой ls-remote/fetch внутри —
   # без тайм-бокса тот же класс зависания на WSL2 воспроизводится даже после
   # фикса a3d0b95 (тот фикс закрыл только gh issue list ниже по heredoc).
+  # issue #278: полный --check без --fast сравнивает 500+ файлов построчно —
+  # заведомо не укладывается в тайм-бокс, обновление тихо теряется как "проверено".
+  # --fast (issue #230) сравнивает только версию манифеста — секунда вместо минут.
   if [ -d "$IWE/FMT-exocortex-template" ]; then
     local upd_status
     upd_status=$(run_bounded "${ISSUE_SWEEP_TIMEOUT:-10}" bash -c \
-      "cd '$IWE/FMT-exocortex-template' && bash update.sh --check 2>&1 | grep -oE '[0-9]+ обновлен|нет обновлен|актуал' | head -1")
+      "cd '$IWE/FMT-exocortex-template' && bash update.sh --check --fast 2>&1 | grep -oE 'Версия совпадает|Версия отличается' | head -1")
     echo "| Update IWE | 🟢 | ${upd_status:-проверено} |"
   fi
 
@@ -1035,7 +1042,10 @@ render_compact_dashboard() {
 
   # Светофор — критические позиции
   echo "**IWE за ночь:**"
-  echo "  Scheduler: $(launchctl list 2>/dev/null | grep -qE 'iwe\.(scheduler|feedback)' && echo '🟢' || echo '🔴 не запущен')"
+  # WP-5 Ubuntu-audit факт #4: this used the same pre-#261 legacy label regex as
+  # the OTHER launchctl check in this file (fixed above) — AND was unconditional
+  # launchctl, so Linux always read 🔴 regardless of the actual systemd timers.
+  echo "  Scheduler: $(iwe_scheduler_active && echo '🟢' || echo '🔴 не запущен')"
   local fpf_status fpf_fetch_ok
   # issue #241 (остаточная дыра): та же незащищённая git fetch, тот же класс зависания.
   # run_bounded не пробрасывает exit-код — результат передаём через маркер в stdout.
@@ -1150,7 +1160,7 @@ $SELF_DEV_BLOCK
 ЗАПРЕЩЕНО: включать в план РП, закрытые вчера (есть в «закрыто вчера» + ✅ в REGISTRY). Например, WP-362 закрыт — его нет в плане.
 
 После priorities.yaml — дополнить из carry-over и SWEEP_WP_LIST теми РП, которых нет в priorities.yaml и которые ещё open.
-Если в day-rhythm-config.yaml задан ключ mandatory_daily_wps — применить его (список РП, обязательных каждый день). Ключ отсутствует → не выводить строку Mandatory check вообще, не подставлять литерал.
+Применить mandatory_daily_wps + daily_checkpoint_wps из day-rhythm-config.yaml.
 KE-строка: bash $TEMPLATE_SCRIPTS_DIR/ke-queue-stats.sh --dayplan-row (реальный бюджет, не литерал «1h»).
 Active WPs to include (из sweep + WeekPlan union): $SWEEP_WP_LIST
 -->
@@ -1169,6 +1179,8 @@ ${STRATEGY_CONTEXT:-не найдены}
 > ТВС: **В** = Важное (развитие / критичное для R1-R6) · **Т** = Текущее (плановая работа) · **С** = Срочное (угроза конвейеру, дублируется в шапке 🚨)
 
 **Бюджет дня:** <!-- PENDING: budget — посчитать после плана, формат см. templates-dayplan.md (бюджет РП всего / физ / мультипликатор). -->
+
+**Mandatory check:** WP-7 (техдолг бота, ≥30 мин) + ≥1 контентный РП — <!-- PENDING: проверить наличие в плане -->
 
 **Carry-over из Day Close вчера ($YDAY):**
 ${DAY_CLOSE_CARRY_OVER:-нет (Day Close не найден)}

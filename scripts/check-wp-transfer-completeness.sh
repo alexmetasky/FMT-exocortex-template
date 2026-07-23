@@ -42,17 +42,10 @@ INBOX="$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/inbox"
 check_one() {
   local wp_num="$1"
   local wp_dir="$INBOX/WP-${wp_num}"
-  # Актуальная конвенция (см. .claude/skills/wp-new/SKILL.md): context-файл лежит
-  # плоско как inbox/WP-{N}-{slug}.md, а inbox/WP-{N}/ — только вложения
-  # (нарративизации, слайды и т.п.). Legacy-путь inbox/WP-{N}/WP-{N}.md — fallback.
-  local wp_file
-  wp_file=$(find "$INBOX" -maxdepth 1 -type f -name "WP-${wp_num}-*.md" 2>/dev/null | head -1)
-  if [[ -z "$wp_file" ]]; then
-    wp_file="$wp_dir/WP-${wp_num}.md"
-  fi
+  local wp_file="$wp_dir/WP-${wp_num}.md"
 
   if [[ ! -f "$wp_file" ]]; then
-    echo "WP-${wp_num}: ❌ context-файл не найден (искали inbox/WP-${wp_num}-*.md и $wp_dir/WP-${wp_num}.md) — пропуск"
+    echo "WP-${wp_num}: ❌ $wp_file не найден — пропуск"
     return
   fi
 

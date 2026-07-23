@@ -35,26 +35,10 @@ table_to_list() {
     local file="$1"
     local section="$2"
 
-    # Формат таблицы «План на сегодня» (day-open/templates.md, закреплён с WP-264):
-    # | 🚦 | ТВС | # | РП | h | Статус | — 6 полей, не 5. Парсер раньше ждал
-    # num|rp|budget|priority|status (5 полей без светофора) и всегда читал
-    # "status" из позиции budget → всегда ⬜ независимо от реального статуса
-    # (обнаружено 18.07.2026, см. inbox/bugs/bug-2026-07-18-tg-digest-always-pending.md).
-    #
-    # Светофор (light, 🔴🟡🟢⚫⚪) и статус-иконка — две разные оси: приоритет
-    # vs стадия выполнения. GitHub-таблица показывает обе, дайджест раньше
-    # терял light (читался в переменную, но не выводился) — правка 18.07.2026,
-    # 3-й проход, по прямому сравнению пилотом со скриншотом GitHub-таблицы.
-    #
-    # Словарь статусов в DayPlan шире, чем изначально предполагалось
-    # (обнаружено 18.07.2026, второй проход): помимо pending/in_progress/done
-    # встречаются blocked, встроен, актуален, проверено, идея — не сваливать
-    # их все молча в ⬜ вместе с реальным pending.
     sed -n -E "/^## ${section}|<summary>.*${section}/,/^---|^<\/details>/p" "$file" \
         | grep '^|' \
         | tail -n +3 \
-        | while IFS='|' read -r _ light tvs num rp budget status _rest; do
-            light=$(echo "$light" | xargs)
+        | while IFS='|' read -r _ num rp budget priority status _rest; do
             num=$(echo "$num" | xargs)
             rp=$(echo "$rp" | xargs | sed 's/\*\*//g')
             budget=$(echo "$budget" | xargs | sed 's/\*\*//g')
@@ -62,14 +46,12 @@ table_to_list() {
 
             local icon="⬜"
             case "$status" in
-                *done*|*"✅"*|*актуален*|*проверено*) icon="✅" ;;
-                *in_progress*|*in.progress*|*"🔄"*) icon="🔄" ;;
-                *blocked*) icon="⛔" ;;
-                *встроен*) icon="🔁" ;;
-                *pending*|*идея*) icon="⬜" ;;
+                *done*|*"✅"*) icon="✅" ;;
+                *in_progress*|*in.progress*) icon="🔄" ;;
+                *pending*) icon="⬜" ;;
             esac
 
-            printf "%s%s #%s %s (%s)\n" "$light" "$icon" "$num" "$rp" "$budget"
+            printf "%s #%s %s (%s)\n" "$icon" "$num" "$rp" "$budget"
         done
 }
 
