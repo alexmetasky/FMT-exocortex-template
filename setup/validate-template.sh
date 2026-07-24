@@ -104,8 +104,16 @@ for pattern in "tserentserenov" "PACK-MIM" "aist_bot_newarchitecture" \
             case "$(basename "$f")" in
                 validate-template.sh|LEARNING-PATH.md|CHANGELOG.md) continue ;;
             esac
+            # docs/adr/ — исключение по ПУТИ файла, не по содержимому строки: git show
+            # печатает голое содержимое (без "path:linenum:"), поэтому `grep -v 'docs/adr/'`
+            # на выводе никогда не матчит и не работает как задумано (нашёл 24.07 при
+            # восстановлении docs/adr/ADR-001-setup-in-template.md — легитимно содержит
+            # "DS-ai-systems" как историческое описание миграции setup.sh).
+            case "$f" in
+                docs/adr/*) continue ;;
+            esac
             file_hits=$(cd "$TEMPLATE_DIR" && git show ":$f" 2>/dev/null \
-                | grep -n "$pattern" | grep -v 'github.com/' | grep -v 'docs/adr/' || true)
+                | grep -n "$pattern" | grep -v 'github.com/' || true)
             if [ -n "$file_hits" ]; then
                 count=$((count + $(echo "$file_hits" | wc -l | tr -d ' ')))
                 hits="${hits}${f}:"$'\n'"${file_hits}"$'\n'
