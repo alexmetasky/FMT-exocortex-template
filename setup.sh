@@ -418,9 +418,28 @@ echo "[1/6] Building generated runtime..."
 if $DRY_RUN; then
     bash "$TEMPLATE_DIR/setup/build-runtime.sh" --dry-run \
         --workspace "$WORKSPACE_DIR" --env-file "$ENV_FILE" 2>&1 | sed 's/^/  /'
+    # PIPESTATUS[0], not `if cmd | sed; then`: without `set -o pipefail` (not
+    # set anywhere in this script — changing that here would affect every
+    # other pipe below, out of scope for this fix) the pipeline's exit status
+    # is sed's, which is always 0. build-runtime.sh's own real failure (e.g.
+    # missing .exocortex.env on a first-ever dry-run before it's been written)
+    # printed an ERROR line right here but setup.sh kept going to a false
+    # "[DRY RUN] No changes made." success (found 03.08, Ф-script-contract-gate
+    # test_fresh_seed_reproduction.sh — a genuinely fresh checkout hits this
+    # exact path, so it's not a hypothetical).
+    build_runtime_rc=${PIPESTATUS[0]}
+    if [ "$build_runtime_rc" -ne 0 ]; then
+        echo "  ERROR: build-runtime.sh --dry-run failed (exit $build_runtime_rc)" >&2
+        exit 1
+    fi
 else
     bash "$TEMPLATE_DIR/setup/build-runtime.sh" \
         --workspace "$WORKSPACE_DIR" --env-file "$ENV_FILE" 2>&1 | sed 's/^/  /'
+    build_runtime_rc=${PIPESTATUS[0]}
+    if [ "$build_runtime_rc" -ne 0 ]; then
+        echo "  ERROR: build-runtime.sh failed (exit $build_runtime_rc)" >&2
+        exit 1
+    fi
 
     # Enable pre-commit hook for platform compatibility checks
     if [ -d "$TEMPLATE_DIR/.githooks" ]; then
@@ -676,6 +695,17 @@ else
     echo "[4e] Generating executor-catalog.yaml..."
     if CATALOG_OUTPUT=$(IWE_GOVERNANCE_REPO="$GOVERNANCE_REPO" python3 "$TEMPLATE_DIR/scripts/generate-executor-catalog.py" 2>&1); then
         echo "$CATALOG_OUTPUT" | sed 's/^/  /'
+    elif echo "$CATALOG_OUTPUT" | grep -q "No module named 'yaml'"; then
+        # Голая Ubuntu/Debian не тащит PyYAML в system python3 (issue найден живым
+        # прогоном WP-5, 2026-07-27) — сырой traceback пугает новичка без подсказки.
+        echo "  ⚠ executor-catalog.yaml не сгенерирован — не хватает библиотеки PyYAML для python3."
+        if [ "$(uname)" = "Linux" ]; then
+            echo "    Установи: sudo apt install python3-yaml (или: pip3 install pyyaml, если pip3 уже стоит)"
+        else
+            echo "    Установи: pip3 install pyyaml"
+        fi
+        echo "    Потом выполни вручную:"
+        echo "    python3 $TEMPLATE_DIR/scripts/generate-executor-catalog.py"
     else
         echo "$CATALOG_OUTPUT" | sed 's/^/  /'
         echo "  ⚠ executor-catalog.yaml не сгенерирован — запусти вручную:"
@@ -772,12 +802,33 @@ elif $DRY_RUN; then
     fi
 else
     if [ -d "$STRATEGY_TEMPLATE" ]; then
+        # bug (issue #305): $MY_STRATEGY_DIR can exist as a plain non-git dir on a
+        # rerun after a prior failed setup.sh left it via the "seed/strategy not
+        # found" fallback below (mkdir -p .../{current,inbox,...}). `cp -r src dst`
+        # then nests src INSIDE an existing dst instead of merging — reproduces the
+        # reported "DS-strategy/strategy/..." double-nesting. Fail loud instead of
+        # silently producing a broken layout; `cp -r src/. dst/` copies contents
+        # correctly whether dst pre-exists (empty, after this guard) or not.
+        if [ -d "$MY_STRATEGY_DIR" ] && [ -n "$(ls -A "$MY_STRATEGY_DIR" 2>/dev/null)" ]; then
+            echo "  ERROR: $MY_STRATEGY_DIR already exists and is not a git repo (partial/failed prior run?)."
+            echo "  Fix: inspect and clean it up (or rename it aside), then re-run setup.sh."
+            exit 1
+        fi
         # Copy my-strategy template into its own repo
-        cp -r "$STRATEGY_TEMPLATE" "$MY_STRATEGY_DIR"
+        mkdir -p "$MY_STRATEGY_DIR"
+        cp -r "$STRATEGY_TEMPLATE"/. "$MY_STRATEGY_DIR"/
         cd "$MY_STRATEGY_DIR"
         git init
         git add -A
         git commit -m "Initial exocortex: DS-strategy governance hub"
+
+        # Enable secrets-check pre-commit hook (issue #317: install-iwe-paths.sh
+        # runs at step [4d], before this repo exists — its auto-enable loop can't
+        # see it on first setup.sh run, and update.sh never calls that script).
+        if [ -d "$MY_STRATEGY_DIR/.githooks" ]; then
+            git config core.hooksPath .githooks 2>/dev/null && \
+                echo "  Pre-commit hook enabled (.githooks/)" || true
+        fi
 
         if ! $CORE_ONLY; then
             # Create GitHub repo (full mode only)

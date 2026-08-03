@@ -34,43 +34,33 @@ escape_html() {
 table_to_list() {
     local file="$1"
     local section="$2"
+    # dayplan: 🚦 | ТВС | # | РП | h | Статус (2 leading columns vs weekplan)
+    # weekplan (default): # | РП | Бюджет | Статус | Дедлайн | Репо
+    local format="${3:-weekplan}"
 
-    # Формат таблицы «План на сегодня» (day-open/templates.md, закреплён с WP-264):
-    # | 🚦 | ТВС | # | РП | h | Статус | — 6 полей, не 5. Парсер раньше ждал
-    # num|rp|budget|priority|status (5 полей без светофора) и всегда читал
-    # "status" из позиции budget → всегда ⬜ независимо от реального статуса
-    # (обнаружено 18.07.2026, см. inbox/bugs/bug-2026-07-18-tg-digest-always-pending.md;
-    # update.sh откатил этот фикс дважды — 18.07 и 24.07 — см. AUTHOR-ONLY маркер ниже).
-    #
-    # Светофор (light, 🔴🟡🟢⚫⚪) и статус-иконка — две разные оси: приоритет
-    # vs стадия выполнения. GitHub-таблица показывает обе, дайджест раньше
-    # терял light (читался в переменную, но не выводился) — правка 18.07.2026,
-    # 3-й проход, по прямому сравнению пилотом со скриншотом GitHub-таблицы.
-    #
-    # Словарь статусов в DayPlan шире, чем изначально предполагалось
-    # (обнаружено 18.07.2026, второй проход): помимо pending/in_progress/done
-    # встречаются blocked, встроен, актуален, проверено, идея — не сваливать
-    # их все молча в ⬜ вместе с реальным pending.
     sed -n -E "/^## ${section}|<summary>.*${section}/,/^---|^<\/details>/p" "$file" \
         | grep '^|' \
         | tail -n +3 \
-        | while IFS='|' read -r _ light tvs num rp budget status _rest; do
-            light=$(echo "$light" | xargs)
-            num=$(echo "$num" | xargs | sed 's/\*\*//g')
+        | while IFS='|' read -r _ f1 f2 f3 f4 f5 f6 _rest; do
+            local num rp hours status
+            if [ "$format" = "dayplan" ]; then
+                num="$f3"; rp="$f4"; hours="$f5"; status="$f6"
+            else
+                num="$f1"; rp="$f2"; hours="$f3"; status="$f4"
+            fi
+            num=$(echo "$num" | xargs)
             rp=$(echo "$rp" | xargs | sed 's/\*\*//g')
-            budget=$(echo "$budget" | xargs | sed 's/\*\*//g')
+            hours=$(echo "$hours" | xargs | sed 's/\*\*//g')
             status=$(echo "$status" | xargs)
 
             local icon="⬜"
             case "$status" in
-                *done*|*"✅"*|*актуален*|*проверено*) icon="✅" ;;
-                *in_progress*|*in.progress*|*"🔄"*) icon="🔄" ;;
-                *blocked*) icon="⛔" ;;
-                *встроен*) icon="🔁" ;;
-                *pending*|*идея*) icon="⬜" ;;
+                *done*|*"✅"*) icon="✅" ;;
+                *in_progress*|*in.progress*) icon="🔄" ;;
+                *pending*) icon="⬜" ;;
             esac
 
-            printf "%s%s #%s %s (%s)\n" "$light" "$icon" "$num" "$rp" "$budget"
+            printf "%s #%s %s (%s)\n" "$icon" "$num" "$rp" "$hours"
         done
 }
 
@@ -108,7 +98,7 @@ build_message() {
             local title
             title=$(grep '^# ' "$file" | head -1 | sed 's/^# //' | escape_html)
             local plan_items
-            plan_items=$(table_to_list "$file" "План на сегодня" | escape_html)
+            plan_items=$(table_to_list "$file" "План на сегодня" "dayplan" | escape_html)
 
             printf "<b>📋 %s</b>\n\n" "$title"
             printf "<b>План:</b>\n%s" "$plan_items"
