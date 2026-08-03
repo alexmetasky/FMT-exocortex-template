@@ -116,7 +116,10 @@ report_activity() {
         for window in $(seq 0 $(( dormant - 1 ))); do
             since_days=$(( (window + 1) * period ))
             until_days=$(( window * period ))
-            count=$(git -C "$IWE_ROOT" log --oneline -E \
+            # $IWE_ROOT (workspace-корень) обычно НЕ git-репозиторий сам по себе —
+            # реальные коммиты (day-close/week-close/lesson hygiene) живут в
+            # governance-репо ($IWE_DS_MY_STRATEGY), туда и смотрим.
+            count=$(git -C "${IWE_DS_MY_STRATEGY:-$IWE_ROOT}" log --oneline -E \
                 --since="${since_days} days ago" --until="${until_days} days ago" \
                 --grep="$regex" 2>/dev/null | wc -l | tr -d '[:space:]')
             if [ "$count" -ge "$expected" ]; then
