@@ -159,11 +159,7 @@ for f in $(find "$MEMORY_DIR/" -maxdepth 1 -name "*.md" | sort); do
     [ -z "$vf" ] && continue
 
     # Используем mtime как прокси для "последнего обращения"
-    # GNU stat (Linux) сначала, BSD stat (macOS) fallback — на Linux BSD-синтаксис
-    # печатает частичный вывод в stdout до ошибки, который склеивался с fallback-датой
-    mtime=$(stat -c "%y" "$f" 2>/dev/null | cut -d' ' -f1)
-    [ -z "$mtime" ] && mtime=$(stat -f "%Sm" -t "%Y-%m-%d" "$f" 2>/dev/null)
-    [ -z "$mtime" ] && mtime="$vf"
+    mtime=$(stat -f "%Sm" -t "%Y-%m-%d" "$f" 2>/dev/null || date -r "$f" +%Y-%m-%d 2>/dev/null || echo "$vf")
     age=$(days_since "$mtime")
 
     rec=""

@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
 # routing: helper  called-by=wp-gate  deterministic=true
 # see DP.SC.159, DP.ROLE.059
-# create-wp.sh — атомарное создание РП в 4 местах (inbox, REGISTRY, WeekPlan, Linear)
+# create-wp.sh — атомарное создание РП в локальных местах (inbox, REGISTRY, WeekPlan);
+# внешний трекер (Linear) — условный пост-шаг, только при подключённом MCP (issue #321)
 # see WP-297 Ф6.2 (<governance-repo>/inbox/WP-297-wp-lifecycle-architecture.md)
 # see DP.M.010, DP.ROLE.037
 #
 # Использование:
 #   bash create-wp.sh --title "Название" --budget 5h --priority P3 [--slug slug] [--repo "репо"] [--related "WP-150:dependency,WP-167:продукт"]
-#   bash create-wp.sh --title "Название" --budget 5h --priority P3 --state "belonging (Оснащённость): из → в" [--hypothesis H-101]
+#   bash create-wp.sh --title "Название" --budget 5h --priority P3 --state "belonging (Оснащённость): из → в" --hypothesis "H-101 | —:infra|techdebt|order|spinoff" [--hypothesis-relation tests]
 #   bash create-wp.sh --title "Название" --budget 5h --priority P3 --no-consent-check
 #
 # --state (WP-505): target state transition (WP-457 State-Transition Gate).
 #   REQUIRED when <governance>/docs/state-axes-registry.yaml exists (author install);
 #   optional otherwise (typical user install — gate inactive per template contract).
 #   Must mention at least one gate_ready axis code from the registry file.
-# --hypothesis (WP-505): H-NNN from current/hypotheses-log.md, or "—" (default).
+# --hypothesis (WP-496 Ф8): REQUIRED when <governance>/current/hypotheses-log.md exists —
+#   H-NNN anchored in the log, or explicit dash with reason code (—:infra|techdebt|order|spinoff).
+# --hypothesis-relation: tests|enables|responds|researches|operational|unclassified.
+# New work must resolve unclassified before it is started; the default preserves
+# older callers while making the missing strategic basis visible in frontmatter.
 #
 # Предусловие: consent state file должен существовать:
 #   touch ${IWE:-$HOME/IWE}/.claude/state/wp-consent-{N}
@@ -48,6 +53,7 @@ RELATED=""
 RESULT=""
 STATE=""
 HYPOTHESIS=""
+HYPOTHESIS_RELATION="unclassified"
 SKIP_CONSENT=0
 
 while [[ $# -gt 0 ]]; do
@@ -61,6 +67,7 @@ while [[ $# -gt 0 ]]; do
     --result)   RESULT="$2";   shift 2 ;;
     --state)    STATE="$2";    shift 2 ;;
     --hypothesis) HYPOTHESIS="$2"; shift 2 ;;
+    --hypothesis-relation) HYPOTHESIS_RELATION="$2"; shift 2 ;;
     --no-consent-check) SKIP_CONSENT=1; shift ;;
     *) echo "Неизвестный флаг: $1" >&2; exit 1 ;;
   esac
@@ -68,9 +75,29 @@ done
 
 # --- Валидация ---
 if [[ -z "$TITLE" || -z "$BUDGET" ]]; then
-  echo "Использование: $0 --title \"Название\" --budget 5h [--priority P3] [--slug slug] [--repo репо] [--related \"WP-NNN:тип\"] [--result R3] [--state \"ось: из → в\"] [--hypothesis H-NNN]" >&2
+  echo "Использование: $0 --title \"Название\" --budget 5h [--priority P3] [--slug slug] [--repo репо] [--related \"WP-NNN:тип\"] [--result R3] [--state \"ось: из → в\"] [--hypothesis H-NNN] [--hypothesis-relation tests]" >&2
   exit 1
 fi
+
+case "$HYPOTHESIS_RELATION" in
+  tests|enables|responds)
+    [[ "${HYPOTHESIS:-—}" =~ ^H-[0-9]{3}$ ]] || {
+      echo "❌ Для связи '$HYPOTHESIS_RELATION' нужен --hypothesis H-NNN" >&2
+      exit 1
+    }
+    ;;
+  researches|operational)
+    [[ -z "$HYPOTHESIS" || "$HYPOTHESIS" == "—" || "$HYPOTHESIS" =~ ^—:(infra|techdebt|order|spinoff)$ ]] || {
+      echo "❌ Для связи '$HYPOTHESIS_RELATION' укажите --hypothesis — или код причины —:<infra|techdebt|order|spinoff>" >&2
+      exit 1
+    }
+    ;;
+  unclassified) ;;
+  *)
+    echo "❌ Неизвестная связь с гипотезой: $HYPOTHESIS_RELATION" >&2
+    exit 1
+    ;;
+esac
 
 # --- State-Transition Gate (WP-457 / WP-505) ---
 # When the axes registry exists, --state is mandatory and must reference a
@@ -110,6 +137,43 @@ PYEOF
     echo "   Передано: $STATE" >&2
     exit 1
   fi
+fi
+
+# --- Hypothesis Gate (WP-496 Ф8) ---
+# Mirror of the State-Transition Gate: when the hypotheses log exists (author
+# install), --hypothesis is mandatory — either an H-NNN recorded in the log or
+# an explicit dash with a reason code. A WP references an EXISTING bet
+# (many WPs per hypothesis); new hypotheses enter only via the pilot's entry
+# filter, never as a side effect of creating a WP. Installs without the log
+# keep the gate off.
+HYP_LOG="$STRATEGY/current/hypotheses-log.md"
+if [[ -f "$HYP_LOG" ]]; then
+  HYP_USAGE="H-NNN (из current/hypotheses-log.md) либо —:infra | —:techdebt | —:order | —:spinoff"
+  if [[ -z "$HYPOTHESIS" ]]; then
+    echo "🚫 Hypothesis Gate (WP-496): --hypothesis обязателен — журнал гипотез найден:" >&2
+    echo "   $HYP_LOG" >&2
+    echo "   Формат: $HYP_USAGE" >&2
+    exit 1
+  fi
+  case "$HYPOTHESIS" in
+    "—:infra"|"—:techdebt"|"—:order"|"—:spinoff") : ;;
+    *)
+      HYP_IDS=$(grep -oE '\bH-[0-9]{3}\b' <<<"$HYPOTHESIS" | sort -u)
+      if [[ -z "$HYP_IDS" ]]; then
+        echo "🚫 Hypothesis Gate: не распознан ни H-NNN, ни код причины" >&2
+        echo "   Передано: $HYPOTHESIS" >&2
+        echo "   Формат: $HYP_USAGE" >&2
+        exit 1
+      fi
+      for HID in $HYP_IDS; do
+        if ! grep -q "id=$HID " "$HYP_LOG"; then
+          echo "🚫 Hypothesis Gate: $HID не найден среди якорей журнала ($HYP_LOG)" >&2
+          echo "   Новая гипотеза заводится через входной фильтр журнала, не через create-wp" >&2
+          exit 1
+        fi
+      done
+      ;;
+  esac
 fi
 
 # Registry cell «Ставка»: Russian axis names + hypothesis id (WP-505).
@@ -281,7 +345,8 @@ if [[ -n "$STATE" ]]; then
   FM_STAKE="state_transition: \"${STATE}\"
 "
 fi
-FM_STAKE="${FM_STAKE}hypothesis: \"${HYPOTHESIS:-—}\""
+FM_STAKE="${FM_STAKE}hypothesis: \"${HYPOTHESIS:-—}\"
+hypothesis_relation: \"${HYPOTHESIS_RELATION}\""
 
 if ! cat > "$WP_FILE" <<WPEOF
 ---
@@ -340,6 +405,9 @@ then
 fi
 
 echo "   ✅ $WP_FILE"
+if [[ "$HYPOTHESIS_RELATION" == "unclassified" ]]; then
+  echo "   ⚠️  Связь с гипотезой не определена: до начала РП выберите tests/enables/responds/researches/operational" >&2
+fi
 
 # --- Шаг 2: archive stub ---
 echo "2/6 archive stub..."
@@ -414,27 +482,40 @@ for i, name in enumerate(header_cols):
     col_index.setdefault(canonical, i)
 missing_names = [name for name in CANONICAL_NAMES if name not in col_index]
 if missing_names:
+    # issue #364: old installs cannot receive seed/template changes through
+    # update.sh, so migrate the first writable registry table in place. Existing
+    # columns (including the useful legacy «Активация») remain untouched; missing
+    # canonical columns are appended and old rows receive an explicit em dash.
+    def append_cell(line, value):
+        newline = "\n" if line.endswith("\n") else ""
+        body = line.rstrip("\n").rstrip()
+        if not body.endswith("|"):
+            raise ValueError("not a markdown table row")
+        return body[:-1].rstrip() + " | " + value + " |" + newline
+
+    header_idx = insert_at - 2
+    separator_idx = insert_at - 1
+    for name in missing_names:
+        lines[header_idx] = append_cell(lines[header_idx], name)
+        lines[separator_idx] = append_cell(lines[separator_idx], "---")
+
+    row_idx = insert_at
+    while row_idx < len(lines) and lines[row_idx].lstrip().startswith("|"):
+        for _ in missing_names:
+            lines[row_idx] = append_cell(lines[row_idx], "—")
+        row_idx += 1
+
+    header_line = lines[header_idx]
+    header_cols = [c.strip() for c in header_line.strip().strip("|").split("|")]
+    col_index = {}
+    for i, name in enumerate(header_cols):
+        canonical = COLUMN_SYNONYMS.get(name, name)
+        col_index.setdefault(canonical, i)
     print(
-        "❌ WP-REGISTRY.md: заголовок таблицы не содержит обязательных колонок {}.".format(
-            missing_names
-        ),
-        file=sys.stderr,
+        "   ⚠ REGISTRY: добавлены отсутствовавшие колонки {} (legacy-колонки сохранены)".format(
+            ", ".join(missing_names)
+        )
     )
-    print("   Заголовок: {}".format(header_line.strip()), file=sys.stderr)
-    print(
-        "   create-wp.sh требует колонки # | P | Название | Ст | Репо | Бюджет —",
-        file=sys.stderr,
-    )
-    print(
-        "   без них не знает, куда писать новую строку.",
-        file=sys.stderr,
-    )
-    print(
-        "   Приведите заголовок REGISTRY к схеме с этими 6 колонками (порядок и",
-        file=sys.stderr,
-    )
-    print("   доп. колонки — свободные), затем повторите создание РП.", file=sys.stderr)
-    sys.exit(1)
 
 repo_cell = repo if repo else "{}/inbox/WP-{}/".format(gov_repo, wp_id)
 values_by_name = {
@@ -599,10 +680,11 @@ else
   echo "   ⚠️  scripts/build-active-wp.py не найден (искали в \`$STRATEGY/scripts/\` и \`$IWE/FMT-exocortex-template/scripts/\`) — пересобрать вручную" >&2
 fi
 
-# --- Linear (ручной шаг) ---
+# --- Внешний трекер (условный пост-шаг, issue #321) ---
 echo ""
-echo "ℹ️  Linear: создать issue вручную или через MCP"
+echo "ℹ️  Внешний трекер (если подключён): создать issue вручную или через MCP"
 echo "   Linear MCP → create_issue title='WP-${WP_ID} ${TITLE}' teamId=TSR"
+echo "   MCP не подключён → штатно: отметить «внешний трекер: не подключён», локальная запись полна"
 
 # --- Consent file остаётся в папке WP для аудит-следа ---
 # Ранее consent file удалялся здесь; это ломало последующие wp-gate-check
@@ -617,4 +699,4 @@ echo "✅ WP-${WP_ID} создан: $TITLE"
 echo "   context: inbox/WP-${WP_ID}/WP-${WP_ID}.md"
 echo "   archive: archive/wp-contexts/WP-${WP_ID}-${SLUG}.md"
 echo "   Следующий шаг: заполнить «Проблема», «Артефакт», «Фазы» в context file"
-echo "   Не забыть: Linear issue"
+echo "   Не забыть: issue во внешнем трекере (если подключён)"

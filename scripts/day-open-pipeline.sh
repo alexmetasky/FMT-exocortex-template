@@ -71,11 +71,22 @@ tg_notify() {
     return 0
   fi
   if [ -n "${TG_TOKEN:-}" ] && [ -n "${TG_CHAT:-}" ]; then
-    local payload
-    payload=$(jq -n --arg chat "$TG_CHAT" --arg text "$msg" '{chat_id: $chat, text: $text, parse_mode: "Markdown"}')
-    curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+    local payload resp http_code
+    # No parse_mode: Markdown 400s on any unpaired _/*/` in dynamic text (DIAG,
+    # LLM warns) — same failure class month-open-night-run.sh hit live on 27.07.
+    payload=$(jq -n --arg chat "$TG_CHAT" --arg text "$msg" '{chat_id: $chat, text: $text}')
+    resp=$(curl -s -w '\n%{http_code}' -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
       -H "Content-Type: application/json" \
-      -d "$payload" > /dev/null
+      -d "$payload")
+    http_code=$(printf '%s' "$resp" | tail -n1)
+    # WP-484 F64: a fired curl is not a delivered message — verify and say so.
+    if [ "$http_code" != "200" ] || ! printf '%s' "$resp" | grep -q '"ok":true'; then
+      echo "  [tg delivery FAILED http=$http_code] $msg" | head -2
+      return 1
+    fi
+  else
+    echo "  [no tg credentials] $msg" | head -1
+    return 1
   fi
 }
 
@@ -129,20 +140,24 @@ raise SystemExit(1)
 # --- Secrets (must load before the first tg_notify call below — WP-5 Ubuntu-audit
 # П2, 2026-07-22: TG_TOKEN/TG_CHAT used to be assigned after both the D2-dedup and
 # pipeline-started notifications, so those two silently no-op'd every run) ---
-AIST_ENV="$HOME/.config/aist/env"
-if [ -f "$AIST_ENV" ]; then
+source_env_if_present() {
+  [ -f "$1" ] || return 0
   set -a
-  source "$AIST_ENV"
+  source "$1"
   set +a
-fi
-
-# Anthropic API key for llm-proxy (WP-356)
-ANTHROPIC_ENV="$HOME/IWE/.secrets/anthropic_key.env"
-if [ -f "$ANTHROPIC_ENV" ]; then
-  set -a
-  source "$ANTHROPIC_ENV"
-  set +a
-fi
+}
+source_env_if_present "$HOME/.config/aist/env"
+source_env_if_present "$HOME/IWE/.secrets/anthropic_key.env"  # Anthropic API key for llm-proxy (WP-356)
+# WP-484 Ф50b named this file as the readable ANTHROPIC_API_KEY source for the
+# remote-gateway fallback below (line ~534) but never sourced it -- the fallback
+# chain silently resolved to empty and the authorized probe 401'd (found live
+# 2026-08-05 running --probe ahead of a scheduled test run).
+source_env_if_present "$HOME/.iwe/.proxy-env"
+# WP-484 F64 (06.08): TELEGRAM_* live in ~/.secrets/tg-bots (canonical source per
+# lib/telegram.sh) — none of the three files above carry them on tsekh-1, so every
+# tg_notify on the server (incl. the "День открыт" digest and all aborts) was a
+# silent no-op since the migration. Same fix as day-open-pipeline-watchdog.sh.
+source_env_if_present "$HOME/.secrets/tg-bots"
 
 TG_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 TG_CHAT="${TELEGRAM_CHAT_ID:-}"
@@ -231,9 +246,21 @@ WP_REGISTRY="$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/docs/WP-REGISTRY.md"
 # писал ни один механизм. update-derived-snapshot.py (шаг 1.5 выше) уже пишет сюда.
 CP_PROFILE="$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/inbox/WP-425/cache/derived_snapshot.json"
 CALENDAR_OUT="$IWE/.tmp/calendar-$DATE.txt"
-LLM_PROXY_URL="${LLM_PROXY_URL:-http://localhost:18765}"
+LLM_PROXY_URL="${LLM_PROXY_URL:-https://iwe-llm-proxy-production.up.railway.app}"
 PROXY_PORT="${PROXY_PORT:-18765}"
 PROXY_PID=""
+# WP-484 Ф48b (04.08): default flipped from the Mac-only localhost:18765 (the
+# WP-149/504 "dead file" llm-proxy.py, superseded by auth-gateway.py at the
+# WP-400 cutover 09.06) to the properly-maintained Railway gateway. This
+# pipeline runs on either machine of the dual-machine pair (see note below) --
+# a Mac-local address is simply wrong on tsekh-1, and was the root cause of
+# the 30.07/02.08/04.08 stale-credential recurrences on the Mac. Local-only
+# branches below (spawn-if-missing, kill-on-port self-heal) only make sense
+# for an actual localhost target, so they're gated on PROXY_IS_LOCAL.
+case "$LLM_PROXY_URL" in
+  http://localhost:*|http://127.0.0.1:*) PROXY_IS_LOCAL=true ;;
+  *) PROXY_IS_LOCAL=false ;;
+esac
 
 # --- Helper: abort with notification + proxy cleanup ---
 abort() {
@@ -470,25 +497,61 @@ if [ -d "$DS_STRATEGY/.githooks" ] && [ -n "$(ls -A "$DS_STRATEGY/.githooks" 2>/
 fi
 
 # ============================================
+# 1.3. Input freshness self-heal (WP-484 Ф90, 2026-08-12): priorities.yaml and
+# WP-REGISTRY.md are read straight off local disk by LLM Fill below. On a
+# shared checkout (tsekh-1) a live agent session can hold the tree's sync
+# semaphore for hours after finishing its own work (found live: 11h46m past
+# report.md completion) — the periodic sync timer correctly refuses to touch
+# the tree while that semaphore stands, so these two files silently go stale
+# for however long the semaphore lasts, and Day Open builds tonight's plan
+# from yesterday's data. `git show <ref>:<path>` reads a blob straight from
+# the object database without touching the working tree or index at all — no
+# lock, no semaphore, safe regardless of what any other session is doing.
+# Scoped to exactly these two inputs (not a general pull): a full sync still
+# needs the semaphore respected, this only unblocks what Day Open itself
+# reads. `git fetch` above (D2 dedup guard) already refreshed origin/main's
+# ref; if that fetch failed offline, this diff is silently a no-op against a
+# stale ref, which is the same degradation the rest of this pipeline already
+# accepts everywhere else fetch can fail.
+# ============================================
+echo "=== 1.3. Input freshness self-heal ==="
+for _f_rel in current/priorities.yaml docs/WP-REGISTRY.md; do
+  _f_abs="$DS_STRATEGY/$_f_rel"
+  _f_origin=$(cd "$DS_STRATEGY" && git show "origin/main:$_f_rel" 2>/dev/null || true)
+  if [ -z "$_f_origin" ]; then
+    echo "  skipped (origin/main unreadable, e.g. offline): $_f_rel"
+  elif diff -q <(printf '%s' "$_f_origin") "$_f_abs" >/dev/null 2>&1; then
+    echo "  already fresh: $_f_rel"
+  else
+    printf '%s' "$_f_origin" > "$_f_abs"
+    echo "  refreshed from origin/main (local was stale): $_f_rel"
+  fi
+done
+
+# ============================================
 # 2. Ensure LLM Proxy available
 # ============================================
 echo "=== 2. LLM Proxy healthcheck ==="
 PROXY_HEALTH=$(curl -s "${LLM_PROXY_URL}/v1/health" 2>/dev/null | grep -q "ok" && echo "ok" || echo "fail")
 if [ "$PROXY_HEALTH" != "ok" ]; then
-  # lsof (Mac) with ss fallback (NixOS server lacks lsof) — verified live: this
-  # machine has lsof but not ss, so a bare ss-only version (as copied without
-  # testing into month-open-night-run.sh:78) would silently break the Mac side
-  # of the exact dual-machine pair this pipeline is designed to run on. Only
-  # checking port occupancy either way, PID unused below.
-  if lsof -ti :"$PROXY_PORT" >/dev/null 2>&1 || ss -tln 2>/dev/null | grep -q ":$PROXY_PORT "; then
-    # Port already held by another process — likely a live proxy the check above
-    # missed on a transient blip. Spawning here would just crash into "Address
-    # already in use" and spam the error log without helping (found 2026-07-11).
-    echo "  Health check failed but port $PROXY_PORT is already held — not spawning a second proxy, just waiting."
+  if $PROXY_IS_LOCAL; then
+    # lsof (Mac) with ss fallback (NixOS server lacks lsof) — verified live: this
+    # machine has lsof but not ss, so a bare ss-only version (as copied without
+    # testing into month-open-night-run.sh:78) would silently break the Mac side
+    # of the exact dual-machine pair this pipeline is designed to run on. Only
+    # checking port occupancy either way, PID unused below.
+    if lsof -ti :"$PROXY_PORT" >/dev/null 2>&1 || ss -tln 2>/dev/null | grep -q ":$PROXY_PORT "; then
+      # Port already held by another process — likely a live proxy the check above
+      # missed on a transient blip. Spawning here would just crash into "Address
+      # already in use" and spam the error log without helping (found 2026-07-11).
+      echo "  Health check failed but port $PROXY_PORT is already held — not spawning a second proxy, just waiting."
+    else
+      echo "  Proxy not running. Starting via launcher (loads OPENROUTER_API_KEY from secrets)..."
+      bash "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/scripts/llm-proxy-launcher.sh" "$PROXY_PORT" &
+      PROXY_PID=$!
+    fi
   else
-    echo "  Proxy not running. Starting via launcher (loads OPENROUTER_API_KEY from secrets)..."
-    bash "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/scripts/llm-proxy-launcher.sh" "$PROXY_PORT" &
-    PROXY_PID=$!
+    echo "  Remote proxy ($LLM_PROXY_URL) failed health check — nothing local to spawn, just waiting/retrying."
   fi
   # Retry up to 10 times (20s total) — launcher needs extra time to source secrets + import
   for _i in 1 2 3 4 5 6 7 8 9 10; do
@@ -508,16 +571,61 @@ echo "  Proxy OK"
 # real call (2026-07-30 04:30 — 7/7 fill chunks failed with HTTP 401, day not
 # opened). Same request contract as day-open-llm-fill.py: no "model" field, the
 # proxy routes by verification_class.
+# WP-484 Ф50b (04.08): LLM_PROXY_SECRET was never actually provisioned anywhere
+# this pipeline runs -- confirmed live from tsekh-1. What IS already provisioned
+# and already authenticates against this same gateway: PROXY_SHARED_SECRET
+# (root-only /etc/iwe/env, used by iwe-llm-health/iwe-overnight-auditor) and
+# ANTHROPIC_API_KEY (~/.iwe/.proxy-env, tseren-readable -- the one this pipeline's
+# actual execution context can see). Falls back through what's really there
+# instead of requiring a secret nobody would ever provision under this exact name.
+LLM_PROXY_SECRET="${LLM_PROXY_SECRET:-${PROXY_SHARED_SECRET:-${ANTHROPIC_API_KEY:-}}}"
 AUTH_PROBE_ARGS=(-H 'content-type: application/json')
 [ -n "${LLM_PROXY_SECRET:-}" ] && AUTH_PROBE_ARGS+=(-H "X-IWE-Internal-Secret: ${LLM_PROXY_SECRET}")
+AUTH_PROBE_BODY='{"messages":[{"role":"user","content":"ping"}],"max_tokens":1,"verification_class":"trivial"}'
 AUTH_CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 30 -X POST "${LLM_PROXY_URL}/v1/messages" \
-  "${AUTH_PROBE_ARGS[@]}" \
-  -d '{"messages":[{"role":"user","content":"ping"}],"max_tokens":1,"verification_class":"trivial"}' 2>/dev/null) || AUTH_CODE="000"
+  "${AUTH_PROBE_ARGS[@]}" -d "$AUTH_PROBE_BODY" 2>/dev/null) || AUTH_CODE="000"
 if [ "$AUTH_CODE" != "200" ]; then
-  tg_notify "🚨 Day Open aborted: LLM proxy on port $PROXY_PORT answers health but real calls fail (HTTP $AUTH_CODE) — stale credentials after key rotation? Restart the proxy."
-  abort "LLM Proxy authorized probe failed (HTTP $AUTH_CODE)"
+  if $PROXY_IS_LOCAL; then
+    # Self-heal (WP-484, found 2026-08-04): this probe first caught this failure mode
+    # on 2026-07-30 and has correctly fired on every recurrence since (2026-08-02 x3,
+    # 2026-08-04) -- but detection never had matching remediation, so the same
+    # process (confirmed 2026-08-04: same pid, 9 days uptime across all of the above)
+    # kept serving the stale credential until a human happened to restart it by hand.
+    # Kill the process holding the port and let launchd's KeepAlive respawn it fresh
+    # (re-sources the secrets file) -- same fix two independent peer-session
+    # diagnoses (2026-07-03, 2026-08-02) already landed on; retry the probe once
+    # before falling back to abort.
+    echo "  Authorized probe failed (HTTP $AUTH_CODE) — restarting local proxy and retrying once"
+    STALE_PIDS=$(lsof -ti :"$PROXY_PORT" 2>/dev/null || true)
+    for _pid in $STALE_PIDS; do kill "$_pid" 2>/dev/null || true; done
+    for _i in 1 2 3 4 5 6 7 8 9 10; do
+      sleep 2
+      curl -s "${LLM_PROXY_URL}/v1/health" 2>/dev/null | grep -q "ok" && break
+      echo "  Waiting for proxy respawn (attempt $_i/10)..."
+    done
+  else
+    # Remote gateway (WP-484 Ф48b, 04.08): no local process to kill -- Railway
+    # supervises its own restarts (railway.toml restartPolicyType=ON_FAILURE).
+    # A 401 here almost always means LLM_PROXY_SECRET is unset/wrong on this
+    # host (confirmed missing on tsekh-1 at cutover time), not a crashed
+    # process -- one short wait only covers a mid-deploy blip on Railway's side.
+    echo "  Authorized probe failed (HTTP $AUTH_CODE) on remote gateway — short wait and retry once"
+    sleep 5
+  fi
+  AUTH_CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 30 -X POST "${LLM_PROXY_URL}/v1/messages" \
+    "${AUTH_PROBE_ARGS[@]}" -d "$AUTH_PROBE_BODY" 2>/dev/null) || AUTH_CODE="000"
+  if [ "$AUTH_CODE" != "200" ]; then
+    if $PROXY_IS_LOCAL; then
+      tg_notify "🚨 Day Open aborted: LLM proxy on port $PROXY_PORT still fails after restart (HTTP $AUTH_CODE) — credential itself is likely dead at the provider, needs manual rotation (WP-399), not just a process restart."
+    else
+      tg_notify "🚨 Day Open aborted: remote LLM proxy ($LLM_PROXY_URL) still fails (HTTP $AUTH_CODE) — check LLM_PROXY_SECRET on this host matches Railway's PROXY_SHARED_SECRET, or WP-399 key rotation."
+    fi
+    abort "LLM Proxy authorized probe failed after restart (HTTP $AUTH_CODE)"
+  fi
+  echo "  Proxy authorized probe OK after restart"
+else
+  echo "  Proxy authorized probe OK"
 fi
-echo "  Proxy authorized probe OK"
 
 # ============================================
 # 3. Scaffold
@@ -558,7 +666,10 @@ $DIAG"
 HEAD_HASH=$(cd "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}" && git rev-parse HEAD 2>/dev/null || echo "no-git")
 INPUT_HASH_FILE="$IWE/.tmp/day-open-input-hash-$DATE.txt"
 INPUT_HASH=$( (cat "$SCAFFOLD_TEMP" "$WEEKPLAN_PATH" "$CALENDAR_OUT" 2>/dev/null; echo "$HEAD_HASH") | shasum -a 256 | awk '{print $1}' )
-if [ -f "$INPUT_HASH_FILE" ]; then
+# --force must beat BOTH guards: the D2 guard above already honors it, and its
+# own user-facing message ("Use --force to regenerate") promises a regenerate —
+# without this bypass the promise died here on unchanged inputs (review F64).
+if [ "$FORCE" != "true" ] && [ -f "$INPUT_HASH_FILE" ]; then
   PREV_HASH=$(cat "$INPUT_HASH_FILE")
   if [ "$PREV_HASH" = "$INPUT_HASH" ]; then
     echo "  Input hash unchanged — DayPlan already generated for this data set. Skipping."
@@ -567,12 +678,11 @@ if [ -f "$INPUT_HASH_FILE" ]; then
     exit 0
   fi
 fi
-# WP-484 night-cycle-day.sh --probe independent review (28.07): a probe run must
-# never write the real day's input-hash marker — a subsequent real run with the
-# same inputs would silently "already up-to-date" skip generating the actual DayPlan.
-if [ "$PROBE" != "true" ]; then
-  echo "$INPUT_HASH" > "$INPUT_HASH_FILE"
-fi
+# WP-484 F64 (06.08): the hash write itself moved AFTER a successful push (step 6).
+# Writing it here poisoned every retry when a run died between scaffold and push
+# (live case 06.08 03:03: runner timeout kill after LLM fill, before commit —
+# each rerun then skipped with "already generated" while nothing was published).
+# Same bug class as the probe-hash leak fixed 28.07.
 
 # Move scaffold to target
 mv "$SCAFFOLD_TEMP" "$DAYPLAN_PATH"
@@ -603,7 +713,8 @@ python3 "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/scripts/day-open-llm-fill.py" 
   --fleeting-notes "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/inbox/fleeting-notes.md" \
   --priorities "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/current/priorities.yaml" \
   --out "$DAYPLAN_PATH" \
-  --proxy-url "$LLM_PROXY_URL" 2> "$FILL_ERR_TMP" || FILL_EXIT=$?
+  --proxy-url "$LLM_PROXY_URL" \
+  --proxy-secret "$LLM_PROXY_SECRET" 2> "$FILL_ERR_TMP" || FILL_EXIT=$?
 cat "$FILL_ERR_TMP" >&2
 { echo "=== LLM Fill $(date '+%H:%M:%S') exit=$FILL_EXIT ==="; cat "$FILL_ERR_TMP"; } >> "$DAY_OPEN_LOG"
 if [ "$FILL_EXIT" -eq 2 ]; then
@@ -699,7 +810,13 @@ else
 if ! bash "$IWE/scripts/git-dirty-guard.sh" "$IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}"; then
   tg_notify "⚠️ Day Open: git-dirty-guard нашёл незакоммиченную работу — pull пропущен, но уже отрендеренный DayPlan сохраняется (не абортим pipeline, WP-484 fix 26.07)"
 else
-  git pull --rebase || tg_notify "⚠️ Day Open: git pull --rebase failed — continuing without pull (WP-484 fix 26.07)"
+  # Sync failures are reported out-of-repo only. Appending sync_skipped to the
+  # tracked ledger here would make the next git-dirty-guard invocation reject the
+  # pipeline's own diagnostic write and turn a transient failure into a permanent
+  # dirty-tree loop. The periodic sync service owns persistent failure counters.
+  git pull --rebase || {
+    tg_notify "⚠️ Day Open: git pull --rebase failed — continuing without pull (WP-484 fix 26.07)"
+  }
 fi
 
 # Archive stale DayPlans (move + overwrite, and record the deletion).
@@ -774,6 +891,12 @@ git add "$ARCHIVE_DIR/" 2>/dev/null || true
 git commit -m "feat(dayplan): $DATE — auto Day Open (WP-356) [allow:current]" --trailer "Co-Authored-By: Kimi <noreply@moonshot.ai>" -- "$DAYPLAN_PATH" "$ARCHIVE_DIR/" ${ARCHIVED_PATHS[@]+"${ARCHIVED_PATHS[@]}"} || abort "Git commit failed"
 
 git push || abort "Git push failed"
+
+# WP-484 F64: input-hash means "this data set is PUBLISHED", so it is recorded
+# only after the remote accepted the commit (see the guard comment at step 3).
+if [ "$PROBE" != "true" ]; then
+  echo "$INPUT_HASH" > "$INPUT_HASH_FILE"
+fi
 
 bash "$IWE/scripts/session-guard.sh" close --housekeeping day-open --agent "$SG_AGENT" 2>/dev/null || true
 
