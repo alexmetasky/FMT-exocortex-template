@@ -123,7 +123,10 @@ find_wp_file() {
       found=$(grep -rl "^wp: ${num}$" "$ARCHIVE_DIR" 2>/dev/null | head -1 || true)
     fi
     if [[ -z "$found" ]]; then
-      found=$(find "$ARCHIVE_DIR" -maxdepth 1 -name "WP-${num}*.md" 2>/dev/null | head -1 || true)
+      # A numeric prefix is not an ID boundary: `WP-46*.md` also matches
+      # `WP-469-*.md`.  Only the exact flat filename or a hyphenated slug is
+      # a valid legacy archive candidate for this WP.
+      found=$(find "$ARCHIVE_DIR" -maxdepth 1 \( -name "WP-${num}.md" -o -name "WP-${num}-*.md" \) 2>/dev/null | sort | head -1 || true)
     fi
   fi
 

@@ -23,6 +23,7 @@ git -C "$SCRIPT_DIR" config user.name 'Install path guard test'
 cat >"$WORKSPACE_DIR/.exocortex.env" <<EOF
 WORKSPACE_DIR=$WORKSPACE_DIR
 HOME_DIR=/root
+USER_NAME=root
 CLAUDE_PATH=/root/.claude
 IWE_TEMPLATE=$SCRIPT_DIR
 IWE_RUNTIME=$WORKSPACE_DIR/.iwe-runtime
@@ -102,6 +103,7 @@ git -C "$SCRIPT_DIR" clean -qfd 2>/dev/null || true
 cat >"$WORKSPACE_DIR/.exocortex.env" <<EOF
 WORKSPACE_DIR=$WORKSPACE_DIR
 HOME_DIR=/root
+USER_NAME=root
 CLAUDE_PATH=claude
 IWE_TEMPLATE=$SCRIPT_DIR
 IWE_RUNTIME=$WORKSPACE_DIR/.iwe-runtime

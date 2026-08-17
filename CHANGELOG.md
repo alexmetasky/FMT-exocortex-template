@@ -5,8 +5,21 @@ All notable changes to FMT-exocortex-template will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/).
 
+Классификация записей (WP-7 Ф62 п.4): пункт получает метку `security`/
+`migration`/`behavior`/`optional` через git trailer в теле коммита —
+`Changelog-Tag: <tag>`. **Trailer обязан быть в последнем непрерывном
+блоке строк вида `key: value` в самом конце сообщения** (git-конвенция
+trailer-парсинга) — если после него идёт ещё один абзац (например,
+`Refs:`), git его не распознает и коммит останется без метки:
+```
+fix(area): краткое описание
 
+Тело коммита с объяснением.
 
+Changelog-Tag: security
+Refs: WP-NNN
+```
+Отсутствие метки не означает «безопасно» — просто «не классифицировано».
 
 
 
@@ -118,16 +131,32 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 
 
-## [Unreleased] — обновлено 2026-08-12
+
+
+
+
+
+
+## [0.38.4] — 2026-08-16
 
 ### Added
 
+- [behavior] `14ef9f6` feat(update): этап Б конвейера обновления — --apply-settings-merge и --refresh-stale
+- [behavior] `59e859d` feat(update): этап А наблюдаемости конвейера обновления — классификация author_mode-пропусков и предпросмотр слияния settings.json
+- `82394ba` feat(release): классификация CHANGELOG (security/migration/behavior/optional)
+- `c578eb8` feat: promote day-open-pipeline.sh to platform
 - `0c1cfba` feat(wp518): link work packages to hypotheses
 - `52887e6` feat(create-wp): Hypothesis Gate (WP-496 Ф8) — --hypothesis обязателен при наличии журнала гипотез
 - `86daabe` feat(strategy-cycle): WP-agnostic decision-package contract + hypothesis-log regulation
 
 ### Changed
 
+- [optional] `1bcfdf2` chore(manifest): перегенерация после автосинка адаптеров 2026-08-15 (B2 gate)
+- [optional] `c26b8a7` chore(manifest): перегенерация — settings-merge-apply.sh попал в git после генерации (B2)
+- [optional] `0063969` chore(manifest): перегенерация после no-history-фикса классификатора и session-guard (B2 gate)
+- [behavior] `c370fde` docs(changelog): задокументировать конвенцию Changelog-Tag trailer
+- `9bf3db4` Merge pull request #421 from TserenTserenov/codex/fix-manifest-after-420-delivery
+- `88e447c` Merge pull request #420 from TserenTserenov/codex/fix-issues-413-418-main
 - `b8b903f` Merge remote-tracking branch 'origin/main'
 - `6402816` revert(create-wp): откат Hypothesis Gate (52887e6) — заменён механизмом РП518
 - `1ca4fe0` Merge remote-tracking branch 'origin/main'
@@ -139,6 +168,26 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `update.sh` распознаёт git-зеркало с remote `upstream` и не удаляет из него файлы, которые ещё должен удалить канон (#428).
+- Расхождение шаблонного и рабочего `.claude/settings.json` теперь видно после предварительной синхронизации форка; безопасный предпросмотр слияния не зависит от списка скачанных файлов (#399).
+- Загрузка манифеста и файлов закрепляется на одном commit SHA, поэтому push в `main` не создаёт ложный отказ проверки целостности (#398).
+- `create-wp.sh` больше не создаёт pending-архив, а `close-wp.sh` закрывает `WP-009` по bare ID `9` без второго контекстного файла (#425, #431).
+- `update.sh`: repair-pass снова работает в системном Bash 3.2 macOS; один ремонт закрывает #433 и #438 без потери диагностик.
+- `inject-code-style.sh`: ограничение контекста считает и обрезает Unicode-символы в одной единице, поэтому кириллица не вызывает ложную обрезку (#435).
+- `/extend`: каталог включает все 16 реально вызываемых точек расширения, в том числе проверки day-open, month-close и strategy-session (#436).
+- `AGENTS-agent-blocks.md` снова входит в поставку; манифест пересобран по актуальному дереву (#437).
+- CI-workflow ночного аудита явно помечен как недоставляемый, поэтому собственный валидатор манифеста больше не отвергает релиз (#423).
+- Seed-копия `day-open-pipeline.sh` синхронизирована с каноническим скриптом, поэтому новая установка не получает отставший конвейер (#427).
+- `cdb7c29` fix(day-open): reap stale .git/HEAD.lock before commit + clearer race-guard message (WP-484 Ф95)
+- [behavior] `978d382` fix(update): --apply-settings-merge работает и на повторном прогоне
+- [security] `4a934aa` fix(security): defaultMode=default вместо acceptEdits + fail-closed extensions-gate
+- `6ec4c40` fix(day-open): push с повтором fetch+rebase против гонки с занятым origin (промоция из авторского IWE, v0.38.3)
+- `b4f24c6` fix(dayopen): коммитить только файлы этого прогона, не весь archive/day-plans (WP-484)
+- `a6e4c36` fix(#405): treat cancelled WPs as terminal (#422)
+- `6c3d493` fix: regenerate manifest after #420
+- `89f1b84` fix: resolve regressions #413-#418
+- `a4cbca7` fix(#406): Update IWE светофор day-open-scaffold.sh был вечнозелёным
+- `0e58249` fix(#411,#412,#404,#408,#409,#410,#397,#402): issue funnel — hook/detector/skill/update.sh fixes
 - `7bfa0e6` fix(onboarding): correct МИМ name in template docs — Мастерская, not Школа
 
 
