@@ -231,7 +231,7 @@ is_migrated_platform_memory_path() {
         memory/protocol-open.md|memory/protocol-work.md|memory/protocol-close.md|memory/protocol-month-close.md|\
         memory/agent-architecture-framework.md|memory/agent-vendor-connect-pattern.md|memory/checklists.md|\
         memory/dry-run-contract.md|memory/feedback_response_clarity_for_pilot.md|memory/hooks-design.md|\
-        memory/navigation.md|memory/reference/agent-core.md|memory/repo-type-rules.md|memory/roles.md|\
+        memory/navigation.md|memory/reference/agent-core.md|memory/repo-type-rules.md|\
         memory/r-questionnaire.md|memory/t-checklist.md|memory/templates-dayplan.md) return 0 ;;
         *) return 1 ;;
     esac
@@ -1130,6 +1130,20 @@ if [ ${#SKIPPED_DOWNLOAD[@]} -gt 0 ]; then
     done
     echo "  Эти файлы могут отличаться от upstream и быть перезаписаны при обычном запуске."
     echo ""
+fi
+
+# WP-529 Ф2: TOTAL_CHANGES=0 branch below already refuses to apply anything and
+# leaves the local manifest version untouched when a download/integrity check
+# failed. But when OTHER files genuinely changed (TOTAL_CHANGES>0), nothing
+# used to stop Step 5 from applying those and then Step 6e replacing the local
+# manifest wholesale — stamping the run as "updated to vX" while the files in
+# SKIPPED_DOWNLOAD silently stayed on the old version. Abort here, before Step 4
+# confirmation/Step 5 apply, so a partial fetch never produces a partial write.
+if [ "$TOTAL_CHANGES" -gt 0 ] && [ ${#SKIPPED_DOWNLOAD[@]} -gt 0 ] && ! $CHECK_ONLY; then
+    echo "✗ Обновление остановлено: ${#SKIPPED_DOWNLOAD[@]} файл(ов) не скачались или не прошли проверку целостности (список выше)."
+    echo "  Применение остальных ${TOTAL_CHANGES} изменений отменено — иначе локальный манифест пометил бы обновление как завершённое, а эти файлы остались бы старыми."
+    echo "  Ничего не изменено. Повторите запуск, когда сеть будет доступна."
+    exit "$EXIT_NETWORK"
 fi
 
 if [ "$TOTAL_CHANGES" -eq 0 ] && [ ${#SKIPPED_DOWNLOAD[@]} -gt 0 ]; then
@@ -2100,13 +2114,18 @@ echo ""
 echo "Проверка применённых изменений..."
 
 validate_no_install_values_in_applied_additions() {
-    local env_file="$WORKSPACE_DIR/.exocortex.env" key value failed=0 fpath applied_additions i
+    local env_file="$WORKSPACE_DIR/.exocortex.env"
+    local key value fpath applied_additions added_line historical_lines upstream_ref
+    local i failed=0
     local -a install_keys=() install_values=()
+
     [ -f "$env_file" ] || return 0
     [ "${#APPLIED_PATHS[@]}" -gt 0 ] || return 0
 
     for key in WORKSPACE_DIR HOME_DIR CLAUDE_PATH IWE_TEMPLATE IWE_RUNTIME; do
-        value=$(grep -E "^${key}=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2- | sed -E 's/^"//; s/"$//; s/^'"'"'//; s/'"'"'$//')
+        value=$(grep -E "^${key}=" "$env_file" 2>/dev/null |
+            head -1 | cut -d= -f2- |
+            sed -E 's/^"//; s/"$//; s/^'"'"'//; s/'"'"'$//')
         [ -n "$value" ] || continue
         # issue #397: guard ищет значение как ПОДСТРОКУ во всех добавленных строках.
         # Для путей (WORKSPACE_DIR и т.п.) это осмысленно — случайное совпадение с
@@ -2123,32 +2142,64 @@ validate_no_install_values_in_applied_additions() {
         install_values+=("$value")
     done
 
-    # Guard only files handled by this update. Tracked paths use working-tree
-    # additions; a newly delivered untracked file is scanned in full. No staging is
-    # needed: update.sh must not mutate the user's index or create local commits (#386).
+    # issue #459: guard считал совпадение по подстроке уже утечкой, хотя
+    # substitute_claude_placeholders() никогда не пишет в $SCRIPT_DIR (только
+    # во временную workspace-копию CLAUDE.md) — совпадение здесь могло быть
+    # текстом, который апстрим и раньше приносил под другим значением, не
+    # реальной подстановкой личного пути. Полностью убирать guard нельзя (он
+    # защищает от любой утечки install-path, не только через подстановку —
+    # например, случайно скопированный фрагмент личного конфига в коммит
+    # шаблона); вместо этого сужаем срабатывание: install-значение блокирует
+    # только если добавленная строка ЦЕЛИКОМ (не подстрока) не встречалась
+    # раньше ни в одной прошлой upstream-версии этого же файла.
+    upstream_ref=$(git -C "$SCRIPT_DIR" rev-parse --verify --quiet '@{upstream}' 2>/dev/null || true)
+
     for fpath in "${APPLIED_PATHS[@]}"; do
-        if git -C "$SCRIPT_DIR" ls-files --error-unmatch -- "$fpath" >/dev/null 2>&1; then
-            applied_additions=$(git -C "$SCRIPT_DIR" diff --no-color --no-ext-diff --no-textconv --unified=0 -- "$fpath" |
-                awk '
-                    /^diff --git / { in_hunk=0; next }
-                    /^@@ / { in_hunk=1; next }
-                    in_hunk && /^\+/ { print substr($0, 2) }
-                ')
-        elif [ -f "$SCRIPT_DIR/$fpath" ]; then
+        # Полное текущее содержимое файла на диске, не git-diff working
+        # tree против HEAD. Cold-context review нашёл живую дыру: если файл
+        # уже ЗАКОММИЧЕН до этого прогона (второй прогон update.sh после
+        # ручного коммита, пре-commit хук и т.п.) — git diff между working
+        # tree и HEAD пуст для этого файла (разницы нет), applied_additions
+        # становится пустой строкой, "[ -n ... ] || continue" молча
+        # пропускает файл ЦЕЛИКОМ из проверки — реальная утечка проходит
+        # незамеченной. Файл в APPLIED_PATHS означает "этот прогон его
+        # затронул", независимо от git-статуса — сканировать нужно то, что
+        # реально лежит на диске сейчас.
+        if [ -f "$SCRIPT_DIR/$fpath" ]; then
             applied_additions=$(sed -n 'p' "$SCRIPT_DIR/$fpath")
         else
             continue
         fi
         [ -n "$applied_additions" ] || continue
 
-        for i in "${!install_keys[@]}"; do
-            if grep -Fq -- "${install_values[$i]}" <<<"$applied_additions"; then
-                echo "  ✗ install-value ${install_keys[$i]} найден в добавленных строках обновления:" >&2
-                printf '    %s\n' "$fpath" >&2
-                failed=1
-            fi
-        done
+        # Полные строки из всех прошлых версий именно этого файла в upstream.
+        # Нет upstream ref / нет истории — исключения нет, guard fail-closed.
+        historical_lines=""
+        if [ -n "$upstream_ref" ]; then
+            historical_lines=$(git -C "$SCRIPT_DIR" log --follow --format= \
+                --no-ext-diff --no-textconv -p "$upstream_ref" -- "$fpath" |
+                awk '
+                    /^diff --git / { in_hunk=0; next }
+                    /^@@ / { in_hunk=1; next }
+                    in_hunk && /^[+-]/ { print substr($0, 2) }
+                ')
+        fi
+
+        while IFS= read -r added_line || [ -n "$added_line" ]; do
+            for i in "${!install_keys[@]}"; do
+                [[ "$added_line" == *"${install_values[$i]}"* ]] || continue
+
+                # Исключение только для идентичной полной строки, уже
+                # поставлявшейся upstream; совпадение одной подстроки не достаточно.
+                if ! grep -Fqx -- "$added_line" <<<"$historical_lines"; then
+                    echo "  ✗ install-value ${install_keys[$i]} найден в новой строке обновления:" >&2
+                    printf '    %s\n' "$fpath" >&2
+                    failed=1
+                fi
+            done
+        done <<<"$applied_additions"
     done
+
     [ "$failed" -eq 0 ]
 }
 
