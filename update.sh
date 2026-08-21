@@ -16,6 +16,7 @@ set -e
 EXIT_OK=0
 EXIT_USAGE=1
 EXIT_NETWORK=2
+EXIT_RUNTIME=3   # build-runtime.sh failed — transaction left open (WP-529 F6)
 EXIT_CONFLICT=49
 EXIT_GENERAL=1
 
@@ -524,6 +525,41 @@ RULES_BACKUP_RUN=""
 RULES_SAFE_TO_UPDATE="|"
 UPDATE_INCOMPLETE_MARKER="$SCRIPT_DIR/.update-incomplete"
 UPDATE_TRANSACTION_STARTED=false
+
+# WP-529 F6 (peer-session 2026-08-19-01, Evgenii post-update defect #5):
+# build-runtime is part of the update transaction. Its failure used to be
+# fully swallowed — the status flowed through `| sed`, so even the old warning
+# branch checked sed's exit code, not build-runtime's — and the TOTAL_CHANGES=0
+# recovery branch never invoked it at all. Contract now: failure keeps
+# .update-incomplete, prints remediation and exits EXIT_RUNTIME; rerunning
+# update.sh after fixing the cause converges (same contract as issue #459).
+run_build_runtime_or_die() {
+    [ -f "$SCRIPT_DIR/setup/build-runtime.sh" ] || return 0
+    echo ""
+    echo "Generated runtime (.iwe-runtime/)..."
+    local brt_out brt_status
+    if brt_out=$(bash "$SCRIPT_DIR/setup/build-runtime.sh" \
+        --workspace "$WORKSPACE_DIR" \
+        --env-file "${WORKSPACE_DIR}/.exocortex.env" \
+        --quiet 2>&1); then
+        brt_status=0
+    else
+        brt_status=$?
+    fi
+    [ -n "$brt_out" ] && printf '%s\n' "$brt_out" | sed 's/^/  /'
+    if [ "$brt_status" -ne 0 ]; then
+        # Cold review 2026-08-19 (High): the marker line must not lie — on a
+        # no-op run no transaction was opened and there is no marker to keep.
+        if [ -f "$UPDATE_INCOMPLETE_MARKER" ]; then
+            echo "✗ build-runtime.sh завершился с ошибкой (код $brt_status). Обновление НЕ завершено: маркер .update-incomplete сохранён." >&2
+        else
+            echo "✗ build-runtime.sh завершился с ошибкой (код $brt_status)." >&2
+        fi
+        echo "  Проверьте .exocortex.env (значения placeholders) и повторите: bash $SCRIPT_DIR/update.sh." >&2
+        echo "  Если .exocortex.env ещё не создавался — сначала: bash $SCRIPT_DIR/setup.sh" >&2
+        exit "$EXIT_RUNTIME"
+    fi
+}
 
 begin_update_transaction() {
     if [ ! -f "$UPDATE_INCOMPLETE_MARKER" ]; then
@@ -1159,7 +1195,18 @@ if [ "$TOTAL_CHANGES" -eq 0 ] && [ ${#SKIPPED_DOWNLOAD[@]} -gt 0 ]; then
     if $CHECK_ONLY; then
         assert_self_unmutated
     else
+        # Evgenii Red Team review 2026-08-19 (defect #3 continued, found on the
+        # sibling branch below): the TOTAL_CHANGES=0 branch two if-blocks down
+        # got the transaction/build-runtime fail-closed contract in this same
+        # F6 commit — this branch, with the identical TOTAL_CHANGES=0 condition
+        # plus a download hiccup, was left with the pre-fix behavior: repair_pass
+        # writes to disk with no open transaction, so a build-runtime failure
+        # here would exit EXIT_RUNTIME with no .update-incomplete marker at all.
+        # Same three calls, same order, as the branch below.
+        begin_update_transaction
         repair_pass
+        run_build_runtime_or_die
+        finish_update_transaction
         report_settings_merge_drift
     fi
     exit 0
@@ -1179,6 +1226,15 @@ if [ "$TOTAL_CHANGES" -eq 0 ]; then
         echo "  ℹ Режим --check: repair-pass пропущен (может чинить workspace, запусти без --check)."
         assert_self_unmutated
     else
+        # Evgenii Red Team review 2026-08-19 (defect #3): repair_pass() below
+        # writes files to disk and run_build_runtime_or_die() can fail — but
+        # this branch never called begin_update_transaction(), so a build
+        # failure here exited EXIT_RUNTIME with NO marker on disk at all.
+        # Same fail-closed contract this F6 commit already gives Step 6d
+        # (message text: "no transaction was opened" was true only because
+        # nothing ever opened one here — the actual bug was the missing open,
+        # not the message).
+        begin_update_transaction
         repair_pass
         # issue #279: TOTAL_CHANGES=0 сравнивает только содержимое файлов, не
         # версию в update-manifest.json — без этого локальный манифест навсегда
@@ -1192,8 +1248,17 @@ if [ "$TOTAL_CHANGES" -eq 0 ]; then
                     && echo "  • update-manifest.json: версия синхронизирована (v$UPSTREAM_VERSION)"
             fi
         fi
+        # WP-529 F6 (Evgenii defect #5, 18.08): repair_pass may have refreshed
+        # workspace copies, and this branch used to close the transaction
+        # without ever rebuilding .iwe-runtime/ — recovery ended with a removed
+        # marker but stale substitutions. Same fail-closed contract as Step 6d.
+        run_build_runtime_or_die
+        # Cold review 2026-08-19 (Critical): finish must stay OUT of --check —
+        # the preview used to clear a live .update-incomplete from a previous
+        # failed run without repair or build-runtime, disarming the contract
+        # this marker now carries (runtime freshness + role-runner guard).
+        finish_update_transaction
     fi
-    finish_update_transaction
     # Флаги stage B осмысленны и когда обновлений нет: workspace-копии могли
     # отстать от уже актуального шаблона (repair_pass выше их классифицировал).
     apply_settings_merge_if_requested
@@ -1980,15 +2045,7 @@ fi
 # из-за чего install.sh брал плисты из устаревшего .iwe-runtime/ или legacy FMT с placeholder'ами.
 # Правильный порядок: сначала пересобрать .iwe-runtime/ из актуального FMT + .exocortex.env,
 # потом install.sh каждой роли (чтение из свежего runtime).
-if [ -x "$SCRIPT_DIR/setup/build-runtime.sh" ] || [ -f "$SCRIPT_DIR/setup/build-runtime.sh" ]; then
-    echo ""
-    echo "Generated runtime (.iwe-runtime/)..."
-    bash "$SCRIPT_DIR/setup/build-runtime.sh" \
-        --workspace "$WORKSPACE_DIR" \
-        --env-file "${WORKSPACE_DIR}/.exocortex.env" \
-        --quiet 2>&1 | sed 's/^/  /' || \
-        echo "  ⚠ build-runtime.sh завершился с ошибкой. Запустите вручную: bash $SCRIPT_DIR/setup/build-runtime.sh"
-fi
+run_build_runtime_or_die
 
 # Reinstall roles if changed (ПОСЛЕ build-runtime — install читает из свежего .iwe-runtime/)
 ROLES_CHANGED=false
