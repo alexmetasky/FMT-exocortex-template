@@ -17,6 +17,15 @@
 
 set -eu
 
+# Detect stat mtime flag once — GNU/Linux uses -c %y, BSD/macOS uses -f %Sm.
+# NOTE: GNU stat accepts `-f ...` too (it prints filesystem info, not mtime),
+# so we must detect GNU first by testing the flag it supports and BSD does not.
+if stat -c "%y" /dev/null >/dev/null 2>&1; then
+    _STAT_MTIME_CMD() { stat -c "%y" "$1" | cut -d' ' -f1; }  # GNU/Linux
+else
+    _STAT_MTIME_CMD() { stat -f "%Sm" -t "%Y-%m-%d" "$1"; }  # BSD/macOS
+fi
+
 # Load unified environment: WORKSPACE_DIR, IWE_ROOT, IWE_SCRIPTS, etc.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../.claude/lib/iwe-env-bootstrap.sh" || exit 1
@@ -159,7 +168,7 @@ for f in $(find "$MEMORY_DIR/" -maxdepth 1 -name "*.md" | sort); do
     [ -z "$vf" ] && continue
 
     # Используем mtime как прокси для "последнего обращения"
-    mtime=$(stat -f "%Sm" -t "%Y-%m-%d" "$f" 2>/dev/null || date -r "$f" +%Y-%m-%d 2>/dev/null || echo "$vf")
+    mtime=$(_STAT_MTIME_CMD "$f" 2>/dev/null || echo "$vf")
     age=$(days_since "$mtime")
 
     rec=""
