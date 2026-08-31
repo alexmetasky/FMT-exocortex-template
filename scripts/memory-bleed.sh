@@ -17,15 +17,6 @@
 
 set -eu
 
-# Detect stat mtime flag once — GNU/Linux uses -c %y, BSD/macOS uses -f %Sm.
-# NOTE: GNU stat accepts `-f ...` too (it prints filesystem info, not mtime),
-# so we must detect GNU first by testing the flag it supports and BSD does not.
-if stat -c "%y" /dev/null >/dev/null 2>&1; then
-    _STAT_MTIME_CMD() { stat -c "%y" "$1" | cut -d' ' -f1; }  # GNU/Linux
-else
-    _STAT_MTIME_CMD() { stat -f "%Sm" -t "%Y-%m-%d" "$1"; }  # BSD/macOS
-fi
-
 # Load unified environment: WORKSPACE_DIR, IWE_ROOT, IWE_SCRIPTS, etc.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../.claude/lib/iwe-env-bootstrap.sh" || exit 1
@@ -49,9 +40,23 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-get_field() {
-    local file="$1" field="$2"
-    awk '/^---/{f++} f==1 && /^'"$field"':/{gsub(/^[^:]+: */,""); gsub(/^["'"'"']|["'"'"']$/,""); print; exit}' "$file"
+# #513: единый reader вместо локальной копии — общий .claude/lib/frontmatter.sh
+# уже нормализует обе формы (плоскую и вложенную metadata:), локальный awk видел
+# только плоскую и молча возвращал пустоту на файлах, записанных харнессом.
+_MEMORY_BLEED_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../.claude/lib/frontmatter.sh
+source "$_MEMORY_BLEED_DIR/../.claude/lib/frontmatter.sh"
+
+# #515: file mtime, портируемо. GNU stat (Linux) первым, BSD (macOS) фоллбеком;
+# stderr первой формы подавлен — на macOS она шумела ошибкой в отчёт.
+file_mtime_ymd() {
+    # epoch двумя формами stat (GNU/BSD), дата — python'ом: смешанный тулчейн
+    # macOS (brew GNU stat + системный BSD date) ломал парную комбинацию
+    # stat+date (ревью Ф14, Medium-6)
+    local f="$1" e
+    e=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null)
+    [ -n "$e" ] || return 1
+    python3 -c "import datetime,sys; print(datetime.date.fromtimestamp(int(sys.argv[1])))" "$e" 2>/dev/null
 }
 
 has_frontmatter() {
@@ -168,7 +173,7 @@ for f in $(find "$MEMORY_DIR/" -maxdepth 1 -name "*.md" | sort); do
     [ -z "$vf" ] && continue
 
     # Используем mtime как прокси для "последнего обращения"
-    mtime=$(_STAT_MTIME_CMD "$f" 2>/dev/null || echo "$vf")
+    mtime=$(file_mtime_ymd "$f" || true); [ -n "$mtime" ] || mtime="$vf"
     age=$(days_since "$mtime")
 
     rec=""

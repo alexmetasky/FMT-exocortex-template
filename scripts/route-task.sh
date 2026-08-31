@@ -4,7 +4,7 @@
 # see DP.SC.159, DP.ROLE.059
 #
 # Получает routing-tag из WP Gate или Артефактора → lookup в executor-catalog.yaml →
-# запускает нужный исполнитель (script | haiku | sonnet | opus | mcp-direct).
+# запускает нужный исполнитель (script | haiku | sonnet | opus | mcp-direct | agent | script+judgment).
 #
 # Usage:
 #   route-task.sh --skill <skill-name> [--args "..."]   # strict: no fallback
@@ -20,7 +20,6 @@ set -euo pipefail
 IWE_DIR="${IWE_DIR:-$HOME/IWE}"
 GOV_REPO="${IWE_GOVERNANCE_REPO:-DS-strategy}"
 CATALOG="${IWE_EXECUTOR_CATALOG:-${IWE_DIR}/${GOV_REPO}/scripts/executor-catalog.yaml}"
-VALID_EXECUTORS=("script" "haiku" "sonnet" "opus" "mcp-direct")
 AUDIT_LOG="${IWE_ROUTER_AUDIT:-${IWE_DIR}/${GOV_REPO}/logs/routing-path-distribution.tsv}"
 ERROR_LOG="${IWE_ROUTER_ERRORS:-${IWE_DIR}/${GOV_REPO}/logs/routing-errors.log}"
 JSON_MODE="false"
@@ -41,17 +40,11 @@ die() {
 
 warn() { echo "WARN: $*" >&2; }
 
-# Evgenii Red Team review 2026-08-19 (defect #5): this used to probe bare
-# `python3` directly instead of the shared resolver every other PyYAML
-# consumer switched to in F6 (#453/#463) — on Apple Silicon the resolver
-# finds the Homebrew python3 with PyYAML while PATH's own `python3` can be
-# a different, yaml-less interpreter, so this script reported "PyYAML not
-# found" on machines where it was actually available. RESOLVED_PYTHON3 is set
-# once here and reused by every `python3 -` call below instead of each one
-# deriving its own bare `python3`.
-RESOLVER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/find-python3.sh"
 require_python() {
-    if ! RESOLVED_PYTHON3=$("$RESOLVER"); then
+    if ! command -v python3 &>/dev/null; then
+        die "python3 not found — required for catalog lookup" 1
+    fi
+    if ! python3 -c "import yaml" &>/dev/null; then
         die "PyYAML not found — required for catalog lookup (pip install pyyaml)" 1
     fi
 }
@@ -67,10 +60,15 @@ require_catalog() {
 # ---------------------------------------------------------------------------
 
 emit_result() {
-    local skill="$1" executor="$2" result="$3" routing_path="$4"
+    local skill="$1" executor="$2" result="$3" routing_path="$4" model="${5:-}"
     if [[ "$JSON_MODE" == "true" ]]; then
-        printf '{"executor":"%s","routing_path":"%s","exec_result":"%s"}\n' \
-            "$executor" "$routing_path" "$result"
+        if [[ -n "$model" ]]; then
+            printf '{"executor":"%s","routing_path":"%s","exec_result":"%s","model":"%s"}\n' \
+                "$executor" "$routing_path" "$result" "$model"
+        else
+            printf '{"executor":"%s","routing_path":"%s","exec_result":"%s"}\n' \
+                "$executor" "$routing_path" "$result"
+        fi
     fi
 }
 
@@ -108,7 +106,7 @@ lookup_skill() {
     local skill_name="$1"
     require_python
     require_catalog
-    "$RESOLVED_PYTHON3" - "$CATALOG" "$skill_name" << 'PYEOF'
+    python3 - "$CATALOG" "$skill_name" << 'PYEOF'
 import sys, yaml
 
 catalog_path, skill_name = sys.argv[1], sys.argv[2]
@@ -122,6 +120,8 @@ for entry in cat.get("entries", []):
         print(f"deterministic={r.get('deterministic', 'false')}")
         if "script_path" in r:
             print(f"script_path={r['script_path']}")
+        if "model" in r:
+            print(f"model={r['model']}")
         if "optimization_priority" in r:
             print(f"optimization_priority={r['optimization_priority']}")
         sys.exit(0)
@@ -236,6 +236,33 @@ run_mcp_direct() {
     fi
 }
 
+run_agent() {
+    local skill_name="$1"
+    local model="$2"
+    local args="${3:-}"
+    if [[ "$JSON_MODE" != "true" ]]; then
+        echo "[router] skill=$skill_name executor=agent model=$model"
+        echo "ROUTE_TO_AGENT skill=$skill_name model=$model args=$args"
+    fi
+}
+
+run_script_judgment() {
+    local skill_name="$1"
+    local args="${2:-}"
+    if [[ "$JSON_MODE" != "true" ]]; then
+        echo "[router] skill=$skill_name executor=script+judgment"
+        echo "ROUTE_TO_JUDGMENT skill=$skill_name mode=script+judgment args=$args"
+    fi
+}
+
+fallback_to_sonnet() {
+    local skill_name="$1" args="$2" ts="$3" reason="$4"
+    warn "${reason} Falling back to Sonnet."
+    run_sonnet "$skill_name" "$args"
+    log_audit "$ts" "$skill_name" "sonnet" "OK"
+    emit_result "$skill_name" "sonnet" "OK" "$skill_name → sonnet (fallback)"
+}
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -258,18 +285,16 @@ dispatch_skill() {
                 log_audit "$ts" "$skill_name" "unknown" "NO_MATCH"
                 exit 3
             fi
-            warn "skill '$skill_name' not in catalog. Falling back to Sonnet."
-            run_sonnet "$skill_name" "$args"
-            log_audit "$ts" "$skill_name" "sonnet" "OK"
-            emit_result "$skill_name" "sonnet" "OK" "$skill_name → sonnet (fallback)"
+            fallback_to_sonnet "$skill_name" "$args" "$ts" "skill '$skill_name' not in catalog."
             return 0
         fi
         die "catalog lookup failed (exit=$lookup_exit)"
     fi
 
-    local executor script_path=""
+    local executor script_path="" model=""
     executor=$(echo "$lookup_result" | grep "^executor=" | cut -d= -f2)
     script_path=$(echo "$lookup_result" | grep "^script_path=" | cut -d= -f2- || true)
+    model=$(echo "$lookup_result" | grep "^model=" | cut -d= -f2- || true)
     routing_path="${routing_path}${executor}"
 
     case "$executor" in
@@ -300,6 +325,29 @@ dispatch_skill() {
             emit_result "$skill_name" "mcp-direct" "OK" "$routing_path"
             return 0
             ;;
+        agent)
+            if [[ -z "$model" ]]; then
+                if [[ "$allow_fallback" == "false" ]]; then
+                    warn "agent executor missing model for skill '$skill_name'."
+                    emit_error "$skill_name" "EXEC_FAILED" "agent executor missing model"
+                    emit_result "$skill_name" "agent" "EXEC_FAILED" "$routing_path"
+                    log_audit "$ts" "$skill_name" "agent" "EXEC_FAILED"
+                    exit 4
+                fi
+                fallback_to_sonnet "$skill_name" "$args" "$ts" "agent executor missing model for skill '$skill_name'."
+                return 0
+            fi
+            run_agent "$skill_name" "$model" "$args"
+            log_audit "$ts" "$skill_name" "agent" "OK"
+            emit_result "$skill_name" "agent" "OK" "$routing_path" "$model"
+            return 0
+            ;;
+        script+judgment)
+            run_script_judgment "$skill_name" "$args"
+            log_audit "$ts" "$skill_name" "script+judgment" "OK"
+            emit_result "$skill_name" "script+judgment" "OK" "$routing_path"
+            return 0
+            ;;
         *)
             if [[ "$allow_fallback" == "false" ]]; then
                 warn "unknown executor '$executor' for skill '$skill_name'."
@@ -308,10 +356,7 @@ dispatch_skill() {
                 log_audit "$ts" "$skill_name" "unknown" "EXEC_FAILED"
                 exit 4
             fi
-            warn "unknown executor '$executor' for skill '$skill_name'. Falling back to Sonnet."
-            run_sonnet "$skill_name" "$args"
-            log_audit "$ts" "$skill_name" "sonnet" "OK"
-            emit_result "$skill_name" "sonnet" "OK" "$skill_name → sonnet (fallback)"
+            fallback_to_sonnet "$skill_name" "$args" "$ts" "unknown executor '$executor' for skill '$skill_name'."
             return 0
             ;;
     esac
@@ -320,7 +365,7 @@ dispatch_skill() {
 show_list() {
     require_python
     require_catalog
-    "$RESOLVED_PYTHON3" - "$CATALOG" << 'PYEOF'
+    python3 - "$CATALOG" << 'PYEOF'
 import sys, yaml
 
 with open(sys.argv[1]) as f:
@@ -335,7 +380,7 @@ for e in cat["entries"]:
     ex = e["routing"]["executor"]
     by_exec.setdefault(ex, []).append(e)
 
-for ex in ["script", "haiku", "sonnet", "opus", "mcp-direct"]:
+for ex in ["script", "haiku", "sonnet", "opus", "mcp-direct", "agent", "script+judgment"]:
     for e in by_exec.get(ex, []):
         r = e["routing"]
         sp = r.get("script_path", "—")
@@ -348,10 +393,11 @@ PYEOF
 validate_catalog() {
     require_python
     require_catalog
-    "$RESOLVED_PYTHON3" - "$CATALOG" << 'PYEOF'
+    python3 - "$CATALOG" << 'PYEOF'
 import sys, yaml
 
-VALID = {"script", "haiku", "sonnet", "opus", "mcp-direct"}
+VALID = {"script", "haiku", "sonnet", "opus", "mcp-direct", "agent", "script+judgment"}
+VALID_AGENT_MODELS = {"haiku", "sonnet", "opus"}
 errors = []
 
 with open(sys.argv[1]) as f:
@@ -366,6 +412,8 @@ for e in cat["entries"]:
         errors.append(f"{name}: missing deterministic")
     if r.get("executor") == "script" and "script_path" not in r:
         errors.append(f"{name}: script executor missing script_path")
+    if r.get("executor") == "agent" and r.get("model") not in VALID_AGENT_MODELS:
+        errors.append(f"{name}: agent executor requires model: haiku|sonnet|opus")
 
 if errors:
     print("FAIL:")
