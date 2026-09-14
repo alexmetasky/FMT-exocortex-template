@@ -48,6 +48,14 @@ Verdict выносит subagent в роли Аудитора, читая отч�
 Найти и запустить `iwe-audit.sh` через fallback-цепочку (author-mode → workspace, user-mode → `$IWE_SCRIPTS` из `~/.iwe-paths`):
 
 ```bash
+# issue #688: a non-interactive top-level Bash call doesn't go through
+# .bashrc/.zshenv (interactive-shell guard) or BASH_ENV (read before the
+# harness can set it) — $IWE_SCRIPTS is unset here on plenty of real
+# installs even though ~/.iwe-paths exists and is correct. Source it
+# directly, in this same shell, before reading the variable — `.` doesn't
+# depend on interactive/BASH_ENV machinery at all.
+IWE_PATHS="${IWE_PATHS_FILE:-$HOME/.iwe-paths}"
+[ -r "$IWE_PATHS" ] && . "$IWE_PATHS"
 if [ -n "${IWE_SCRIPTS:-}" ] && [ -f "$IWE_SCRIPTS/iwe-audit.sh" ]; then
     # $IWE_SCRIPTS first (#566): the hardcoded workspace copy, when it exists at
     # all, is a stale leftover — the installer points IWE_SCRIPTS at the template.
@@ -55,7 +63,7 @@ if [ -n "${IWE_SCRIPTS:-}" ] && [ -f "$IWE_SCRIPTS/iwe-audit.sh" ]; then
 elif [ -f "$HOME/IWE/scripts/iwe-audit.sh" ]; then
     AUDIT_SCRIPT="$HOME/IWE/scripts/iwe-audit.sh"
 else
-    echo "iwe-audit.sh не найден. Если \$IWE_SCRIPTS не выставлен — выполни 'source \$HOME/.iwe-paths' (или перезапусти shell), затем повтори. Если файла .iwe-paths нет — запусти setup.sh из FMT-шаблона."
+    echo "iwe-audit.sh не найден. \$IWE_PATHS ($IWE_PATHS) не даёт рабочий \$IWE_SCRIPTS — проверь, что файл существует и содержит export IWE_SCRIPTS=... (запусти setup.sh из FMT-шаблона, если файла нет)."
     exit 1
 fi
 bash "$AUDIT_SCRIPT" $([ "${ARGUMENTS:-}" = "--critical" ] && echo "--critical")
@@ -148,13 +156,7 @@ Coverage: N/4
 
 ### Защита от sticky-sentinel
 
-Если subagent упал/завис → попытаться удалить sentinel явно (всегда). Stop владельца удалит capability-файл; чужой Stop не затронет защиту. TTL 40 мин (`TTL_SECONDS=2400` в `dry-run-gate.sh`) в самом хуке защищает от случаев, когда даже это не отработало (kill -9, краш CLI).
-
-**После истечения TTL хук не снимает защиту сам** — по дизайну (issue #549 stage 1) он переходит в постоянный fail-closed и блокирует ЛЮБОЙ tool-call агента, включая безобидные read-команды (`date`, `ls`), пока sentinel физически не удалён. Сам агент снять файл не может — `dry-run-complete.sh`, вызванный агентом, тоже попадает под блокировку как «indirect execution». Восстановление — только пилот из своего терминала:
-```
-rm -f /tmp/iwe-dry-run.flag
-```
-Сообщи пилоту эту команду сразу, как только увидишь сообщение хука `sentinel stale (older than ...)` — не жди TTL повторно и не пытайся обойти хук другим способом.
+Если subagent упал/завис → попытаться удалить sentinel явно (всегда). Stop владельца удалит capability-файл; чужой Stop не затронет защиту. TTL 10 мин в самом хуке защищает от случаев, когда даже это не отработало (kill -9, краш CLI).
 
 ## Шаг 3. Сборка единого отчёта
 
@@ -242,7 +244,7 @@ rm -f /tmp/iwe-dry-run.flag
 - **Smoke-test покрывает один ритуал** (`/run-protocol close day`). Расширение на week-close / month-close — мини-РП, копия шага 2.5 с другими subcommand'ами.
 - **DS-strategy diff** — работает только если существует `FMT-strategy-template/` (или `templates/strategy-skeleton/`). Если нет — секция пометится «N/A».
 - **MCP healthcheck** — зависит от текущих доступных tools. Если набор изменится, обновить шаг 2.
-- **Sentinel sticky-state** — защита: TTL 40 мин в хуке + Stop-cleanup. После истечения TTL хук не снимает sentinel сам — переходит в постоянный fail-closed, снятие требует `rm -f /tmp/iwe-dry-run.flag` из терминала пилота (см. «Защита от sticky-sentinel» выше). Edge case: если хук изменён и не читает sentinel → блокировки не будет (fail-open). Защита: периодический re-test `/audit-installation` ловит регрессию.
+- **Sentinel sticky-state** — защита: TTL 10 мин в хуке + Stop-cleanup. Edge case: если хук изменён и не читает sentinel → блокировки не будет (fail-open). Защита: периодический re-test `/audit-installation` ловит регрессию.
 
 <!-- USER-SPACE -->
 <!-- /USER-SPACE -->
