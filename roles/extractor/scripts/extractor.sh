@@ -796,6 +796,18 @@ case "$1" in
         # WP-247 Ф-MULTI-SOURCE.2: git-diff feeder (cron 06:00/21:00).
         # Извлекает кандидатов из git log за окно и пишет ###-блоки в captures-inbox.
         # Окно: $2 (по умолчанию "12 hours ago").
+        #
+        # Гоночный баг (найден 2026-09-17, DS-strategy d95d8ea → f837a72): этот
+        # режим писал в captures.md без блокировки, пока strategist.sh note-review
+        # писал в тот же файл под своим отдельным замком (другой lock-неймспейс,
+        # они друг друга не видели) — второй писатель молча стирал правки первого
+        # (lost update). Общий замок с note-review — см. IWE_CAPTURES_LOCK_DIR ниже
+        # и одноимённую переменную в strategist.sh (case "note-review").
+        captures_lock_dir="${IWE_CAPTURES_LOCK_DIR:-${TMPDIR:-/tmp}/iwe-captures-md.lock}"
+        if ! acquire_inbox_lock "$captures_lock_dir" "git-diff-feed"; then
+            exit 0
+        fi
+        trap 'release_inbox_lock "$captures_lock_dir" "git-diff-feed"' EXIT
         SINCE="${2:-12 hours ago}"
         log "Running git-diff FEED (since: $SINCE)"
         run_claude "git-diff-feed" "$SINCE"

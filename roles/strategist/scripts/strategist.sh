@@ -318,6 +318,45 @@ acquire_lock() {
     add_exit_cleanup "rm -rf \"$lockdir\" 2>/dev/null"
 }
 
+# Гоночный баг (найден 2026-09-17, DS-strategy d95d8ea → f837a72): note-review
+# и extractor.sh git-diff-feed оба переписывают captures.md, но acquire_lock()
+# выше защищает только от повторного запуска note-review — git-diff-feed
+# использует отдельный lock-неймспейс (extractor.sh acquire_inbox_lock) и его
+# не видит, так что второй писатель молча стирал правки первого. Общий
+# ресурсный замок (не exit 2 на конфликте — второй писатель просто ждёт, а не
+# роняет весь сценарий) — mirrors extractor.sh's acquire_inbox_lock/
+# release_inbox_lock (same mkdir + stale-PID-reclaim pattern, kept local here
+# since the two scripts share no common library).
+acquire_captures_lock() {  # <lock_dir> [label] [wait_seconds]
+    local lock_dir="$1" label="${2:-captures}" wait_seconds="${3:-60}" owner_pid="" waited=0
+    while true; do
+        if mkdir "$lock_dir" 2>/dev/null; then
+            printf '%s\n' "$$" > "$lock_dir/pid"
+            return 0
+        fi
+        owner_pid=""
+        [ -f "$lock_dir/pid" ] && owner_pid=$(tr -d '[:space:]' < "$lock_dir/pid")
+        if [[ "$owner_pid" =~ ^[0-9]+$ ]] && kill -0 "$owner_pid" 2>/dev/null; then
+            if [ "$waited" -ge "$wait_seconds" ]; then
+                log "SKIP: $label captures lock held by pid $owner_pid after ${wait_seconds}s wait: $lock_dir"
+                return 1
+            fi
+            sleep 2
+            waited=$((waited + 2))
+            continue
+        fi
+        # Owner PID is gone (or lock has no pid file) — reclaim.
+        rm -f "$lock_dir/pid"
+        rmdir "$lock_dir" 2>/dev/null
+    done
+}
+
+release_captures_lock() {  # <lock_dir>
+    local lock_dir="$1"
+    rm -f "$lock_dir/pid"
+    rmdir "$lock_dir" 2>/dev/null
+}
+
 # Читаем strategy_day из конфига (L4 Personal)
 # issue #729: раньше единственным источником был auto-memory Claude Code по
 # литеральному пути "-Users-$(whoami)-IWE" — ломается молча, если workspace
@@ -467,7 +506,20 @@ case "$1" in
         BOLD_NEW_BEFORE=$(grep -vc '🔄' <(grep '^\*\*' "$FLEETING" 2>/dev/null) 2>/dev/null || true); BOLD_NEW_BEFORE=${BOLD_NEW_BEFORE:-0}
         log "Canary: $BOLD_BEFORE bold total ($BOLD_NEW_BEFORE new, $(( BOLD_BEFORE - BOLD_NEW_BEFORE )) deferred 🔄)"
 
-        run_claude "note-review" "claude-haiku-4-5-20251001"
+        # Shared with extractor.sh git-diff-feed/session-close-feed (see comment
+        # on acquire_captures_lock above) — same physical lock_dir on both sides.
+        # add_exit_cleanup, not a local trap: this case block runs at top level
+        # (case "$1" ... esac, not inside a function), and the script already
+        # relies on add_exit_cleanup instead of `trap EXIT` directly so that
+        # multiple independent cleanups (see comment at top of file, issue
+        # #657) don't silently replace each other.
+        captures_lock_dir="${IWE_CAPTURES_LOCK_DIR:-${TMPDIR:-/tmp}/iwe-captures-md.lock}"
+        if acquire_captures_lock "$captures_lock_dir" "note-review"; then
+            add_exit_cleanup "release_captures_lock \"$captures_lock_dir\""
+            run_claude "note-review" "claude-haiku-4-5-20251001"
+        else
+            log "SKIP: note-review captures write skipped — lock unavailable"
+        fi
 
         # Canary: count bold notes after (needs to be visible for alert at line ~274)
         BOLD_AFTER=$(grep -c '^\*\*' "$FLEETING" 2>/dev/null || true); BOLD_AFTER=${BOLD_AFTER:-0}
