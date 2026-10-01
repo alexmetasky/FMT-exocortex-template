@@ -34,33 +34,52 @@ escape_html() {
 table_to_list() {
     local file="$1"
     local section="$2"
-    # dayplan: 🚦 | ТВС | # | РП | h | Статус (2 leading columns vs weekplan)
-    # weekplan (default): # | РП | Бюджет | Статус | Дедлайн | Репо
-    local format="${3:-weekplan}"
 
+    # Columns are located by header name, not position: DayPlan
+    # (🚦 | ТВС | # | РП | h | Статус) and WeekPlan (🚦 | # | РП | h | Статус | …)
+    # order them differently, and fixed positions shifted every field.
+    # Output: priority \t num \t rp \t hours \t status, one line per row.
     sed -n -E "/^## ${section}|<summary>.*${section}/,/^---|^<\/details>/p" "$file" \
         | grep '^|' \
-        | tail -n +3 \
-        | while IFS='|' read -r _ f1 f2 f3 f4 f5 f6 _rest; do
-            local num rp hours status
-            if [ "$format" = "dayplan" ]; then
-                num="$f3"; rp="$f4"; hours="$f5"; status="$f6"
-            else
-                num="$f1"; rp="$f2"; hours="$f3"; status="$f4"
-            fi
-            num=$(echo "$num" | xargs)
-            rp=$(echo "$rp" | xargs | sed 's/\*\*//g')
-            hours=$(echo "$hours" | xargs | sed 's/\*\*//g')
-            status=$(echo "$status" | xargs)
+        | awk -F'|' '
+            function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+            NR == 1 {
+                for (i = 2; i < NF; i++) {
+                    h = trim($i)
+                    if (h == "🚦") c_pri = i
+                    else if (h == "#") c_num = i
+                    else if (h == "РП" || h == "Работа" || h == "Задача") c_rp = i
+                    else if (h == "h" || h == "Бюджет" || h == "Оценка") c_h = i
+                    else if (h == "Статус") c_st = i
+                }
+                next
+            }
+            NR == 2 || !c_rp { next }
+            {
+                printf "%s\t%s\t%s\t%s\t%s\n", c_pri ? trim($c_pri) : "", c_num ? trim($c_num) : "",
+                    trim($c_rp), c_h ? trim($c_h) : "", c_st ? trim($c_st) : ""
+            }' \
+        | while IFS=$'\t' read -r priority num rp hours status; do
+            rp=$(printf '%s' "$rp" | sed 's/\*\*//g')
+            hours=$(printf '%s' "$hours" | sed 's/\*\*//g')
 
-            local icon="⬜"
+            # Not-started rows reuse the DayPlan traffic light (🔴🟡🟢⚫):
+            # a bare ⬜ renders as an empty grey box in Telegram.
+            local icon="${priority:-⬜}"
             case "$status" in
                 *done*|*"✅"*) icon="✅" ;;
                 *in_progress*|*in.progress*) icon="🔄" ;;
-                *pending*) icon="⬜" ;;
             esac
 
-            printf "%s #%s %s (%s)\n" "$icon" "$num" "$rp" "$hours"
+            # No "#" prefix: IDs are now "WP-17" (Telegram turns "#WP" into a
+            # hashtag) or "—" for rows without a work product.
+            local label="$rp"
+            case "$num" in
+                ""|"—"|"-") ;;
+                *) label="$num $rp" ;;
+            esac
+
+            printf "%s %s (%s)\n" "$icon" "$label" "$hours"
         done
 }
 
@@ -106,7 +125,7 @@ build_message() {
             local title
             title=$(grep '^# ' "$file" | head -1 | sed 's/^# //' | escape_html)
             local plan_items
-            plan_items=$(table_to_list "$file" "План на сегодня" "dayplan" | escape_html)
+            plan_items=$(table_to_list "$file" "План на сегодня" | escape_html)
 
             printf "<b>📋 %s</b>\n\n" "$title"
             printf "<b>План:</b>\n%s" "$plan_items"
