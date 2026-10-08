@@ -675,7 +675,7 @@ render_repo_activity() {
     slug=$(basename "$repo")
     n=$(git -C "$repo" log --since="$since 00:00:00" --oneline 2>/dev/null | wc -l | tr -d ' ')
     [ "${n:-0}" -eq 0 ] && continue
-    last=$(git -C "$repo" log -1 --format='%s' 2>/dev/null | cut -c1-50)
+    last=$(git -C "$repo" log -1 --format='%s' 2>/dev/null | python3 -c 'import sys; print(sys.stdin.buffer.read().decode("utf-8", "replace").strip()[:50])' 2>/dev/null)
     out="${out}| ${slug} | ${n} | ${last} |\n"
     any=1
   done < <(iwe_repo_dirs "$IWE"/*/)
