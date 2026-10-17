@@ -101,12 +101,12 @@ defer_until: "после WP-245 Ф22"     # ОБЯЗАТЕЛЬНО — дата 
 
 **Инвариант decision_source (peer-session 2026-07-07-03):** `decision_source: pilot` — обязательное поле при ЛЮБОМ решении (accept/reject/defer). Отсутствует или указано иное значение → решение invalid, Шаг 5 (запись в Pack) обязан отказать и вернуть кандидата на Шаг 2.
 
-**Инвариант defer (peer-session 2026-05-31-22):** `defer_until` — обязательное поле при `decision: defer`. Без него решение invalid. Reason: `deferred` без `defer_until` = masked cancel (см. `memory/lessons_defer_with_explicit_triggers.md`). Формат: дата `YYYY-MM-DD` ИЛИ привязка к событию («после WP-NNN Ф{N}», «при следующем Week Close»).
+**Инвариант defer (peer-session 2026-05-31-22):** `defer_until` — обязательное поле при `decision: defer`. Без него решение invalid. Reason: `deferred` без `defer_until` = masked cancel. Формат: дата `YYYY-MM-DD` ИЛИ привязка к событию («после WP-NNN Ф{N}», «при следующем Week Close»).
 
 ### Шаг 1. Найти незавершённые отчёты
 
 ```bash
-GOV_DIR="$HOME/IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}"
+GOV_DIR="${IWE_WORKSPACE:-$HOME/IWE}/${IWE_GOVERNANCE_REPO:-DS-strategy}"
 bash "$GOV_DIR/scripts/ke-queue-stats.sh" --reports-dir "$GOV_DIR/inbox/extraction-reports" --list
 ```
 
@@ -186,7 +186,7 @@ ID из отчёта предварительный, резервировани�
 **SoT — `routing.yaml` целевого Pack** (WP-429 Ф6.1): `<PACK-repo>/pack/<domain>/routing.yaml` → `kinds.<KIND>.dir` даёт каноническую директорию для kind-кода кандидата (`DP.D`, `PD.METHOD`, `VR.M` и т.д.). Прочитать файл, найти секцию по префиксу ID кандидата:
 
 ```bash
-grep -A3 "^  <KIND>:" ~/IWE/<PACK-repo>/pack/<domain>/routing.yaml
+grep -A3 "^  <KIND>:" ${IWE_WORKSPACE:-$HOME/IWE}/<PACK-repo>/pack/<domain>/routing.yaml
 ```
 
 `dir:` → каноническая директория. `id_pattern:` → проверить соответствие имени файла. `frontmatter_check:` (если не `null`) → соответствующее поле/значение должно быть в кандидате.
@@ -223,7 +223,7 @@ ls <target_dir>/ | sort | grep -A5 -B5 "<ID-slug>"
 
 **Шаг 2 — grep ключевых существительных**. Взять 2-3 ключевых существительных из имени кандидата. Искать в целевом Pack-репо:
 ```bash
-grep -ri "<ключевое_слово>" ~/IWE/<PACK-repo>/pack/ --include="*.md" -l | head -10
+grep -ri "<ключевое_слово>" ${IWE_WORKSPACE:-$HOME/IWE}/<PACK-repo>/pack/ --include="*.md" -l | head -10
 ```
 Если найдено совпадение: прочитать файл. Проверить:
 - **Перекрытие**: кандидат описывает то же самое другими словами → reject (дубликат), паттерн для R2.
@@ -298,7 +298,7 @@ R15 выбирает вариант:
 
 **CLI-эквивалент** (для batch/автоматизации):
 ```bash
-(cd ~/IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}
+(cd ${IWE_WORKSPACE:-$HOME/IWE}/${IWE_GOVERNANCE_REPO:-DS-strategy}
 OPENROUTER_API_KEY="sk-or-v1-..." WP429_DB_ID=3 WP429_TABLE=concept_graph.concepts \
   python3 inbox/WP-429/f2-poc/detector.py --check-candidate \
     --name "<имя кандидата>" \
@@ -381,7 +381,7 @@ decisions:
 ````
 
 До публикации `publication` у принятого кандидата отсутствует. После штатного
-шлюза (`scripts/lib/publish-gate.sh` / `scripts/ds-publish.sh`) записать **конечный**
+шлюза `scripts/ds-publish.sh` записать **конечный**
 SHA, а не SHA до переноса коммита, и `blob` из `git rev-parse <SHA>:<путь-в-репо>`.
 Проверяющий сверяет реальный tip `origin` указанной ветки через `ls-remote`,
 достижимость SHA и точный blob `commit:target_path`. Он не делает fetch, commit

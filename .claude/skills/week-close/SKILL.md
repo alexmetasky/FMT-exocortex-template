@@ -109,7 +109,7 @@ WP-NNN: pending-фазы (M):
 - Просмотреть `inbox/fleeting-notes.md` за неделю → маршрутизировать невыключенные.
 - Уроки сессий → MEMORY.md + thematic `lessons_*.md` (если есть).
 - Drift-scan недели: что в MEMORY.md устарело за 7 дней.
-- **Проверка полноты переноса перед архивацией (WP-5, 2026-07-10):** `bash {{IWE_SCRIPTS}}/check-wp-transfer-completeness.sh --all {{IWE_ROOT}}` по `inbox/WP-N/` — выводит `results_not_captured`-флаги (проставленные при закрытии без заполненного `results_in`) и файлы в подпапках без учёта в основном контекст-файле. Для каждого warning — пилот решает: (a) действительно нужен перенос знания, найти куда; (b) файл технический/устарел, можно оставить; (c) `results_in` заполнить постфактум. Не блокирует Close.
+- **Проверка полноты переноса перед архивацией (WP-5, 2026-07-10):** `bash {{IWE_SCRIPTS}}/check-wp-transfer-completeness.sh --all "${IWE_ROOT:-$HOME/IWE}"` по `inbox/WP-N/` — выводит `results_not_captured`-флаги (проставленные при закрытии без заполненного `results_in`) и файлы в подпапках без учёта в основном контекст-файле. Для каждого warning — пилот решает: (a) действительно нужен перенос знания, найти куда; (b) файл технический/устарел, можно оставить; (c) `results_in` заполнить постфактум. Не блокирует Close.
 
 ### 6a. Сверка журнала гипотез (LPF, WP-496)
 
@@ -140,18 +140,25 @@ PY3="$(bash "$S/lib/find-python3.sh")" && "$PY3" "$S/archive-cadence-sweep.py" -
 #### 7a. Проверка здоровья бэкапов
 
 > Обязательный шаг перед бэкапом. Запускает `iwe-backup-check.sh` (WP-317 supplement).
+> **issue #880:** `backup_enabled: false` в `params.yaml` → пользователь ведёт свой бэкап через собственное расширение (`week-close.after.*.md`) — пропустить 7a и 7b целиком, не запускать встроенную проверку/бэкап вообще.
+
+```bash
+grep -qE '^backup_enabled:[[:space:]]*false([[:space:]]*(#.*)?)?$' "${WORKSPACE_DIR}/params.yaml" 2>/dev/null && BACKUP_DISABLED=1 || BACKUP_DISABLED=0
+```
+
+`BACKUP_DISABLED=1` → пропустить 7a и 7b, перейти к 7c. Иначе:
 
 ```bash
 bash ${IWE_SCRIPTS}/iwe-backup-check.sh
 ```
 
-Если вернул ❌ (exit 2) — устранить критичные gaps ДО бэкапа (устаревший бэкап >14 дней, нет iCloud).  
+Если вернул ❌ (exit 2) — устранить критичные gaps ДО бэкапа (устаревший бэкап >14 дней, нет директории бэкапа — по умолчанию iCloud, либо `backup_dir` из `params.yaml`, если задан).  
 Если вернул ⚠️ (exit 1) — зафиксировать warnings в WeekReport, продолжить.  
 Если ✅ (exit 0) — бэкап в норме.
 
 #### 7b. Бэкап IWE в iCloud
 
-> Условный шаг: только macOS с iCloud Drive. Запускать ТОЛЬКО если 7a не вернул ❌.
+> Условный шаг: только macOS с iCloud Drive, и только если `BACKUP_DISABLED=0` (см. 7a). Запускать ТОЛЬКО если 7a не вернул ❌.
 
 ```bash
 ${IWE_SCRIPTS}/backup-icloud.sh
@@ -181,9 +188,11 @@ bash ${IWE_SCRIPTS}/memory-bleed.sh
 > Проверка здоровья статической нагрузки контекста. Флаги — информативно, пользователь решает.
 
 ```bash
+IWE_ROOT="${IWE_ROOT:-$HOME/IWE}"
+MEMORY_DIR="$IWE_ROOT/memory"
 echo "=== distinctions.md ===" && wc -l {{WORKSPACE_DIR}}/.claude/rules/distinctions.md
-echo "=== MEMORY.md ===" && wc -l {{MEMORY_DIR}}/MEMORY.md
-echo "=== memory/ файлы (mtime >14д) ===" && find {{MEMORY_DIR}} -name "*.md" -mtime +14 -not -name "MEMORY.md" -not -path "*/archive/*" | sort
+echo "=== MEMORY.md ===" && wc -l "$MEMORY_DIR/MEMORY.md"
+echo "=== memory/ файлы (mtime >14д) ===" && find "$MEMORY_DIR" -name "*.md" -mtime +14 -not -name "MEMORY.md" -not -path "*/archive/*" | sort
 ```
 
 | Метрика | Порог | Действие |
@@ -295,7 +304,7 @@ git push
 - [ ] Governance-репо закоммичено
 - [ ] Peer-сессии недели: WP Gate проверен (только сессии с 2026-06-09):
   ```bash
-  find ~/IWE/${IWE_GOVERNANCE_REPO:-DS-strategy}/sessions -type f -name "peer-prompt.md" \
+  find ${IWE_WORKSPACE:-$HOME/IWE}/${IWE_GOVERNANCE_REPO:-DS-strategy}/sessions -type f -name "peer-prompt.md" \
     | awk -F/ '{d=$(NF-1); match(d,/^[0-9]{4}-[0-9]{2}-[0-9]{2}/); print substr(d,RSTART,RLENGTH) " " $0}' \
     | awk '$1 >= "2026-06-09" {print $2}' \
     | xargs -I{} sh -c 'grep -q "Открытие (WP Gate)" "{}" || echo "WP-GATE-MISS: {}"'

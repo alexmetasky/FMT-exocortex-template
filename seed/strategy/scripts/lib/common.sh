@@ -418,3 +418,78 @@ iwe_calendar_source() {
       echo connector ;;
   esac
 }
+
+# iwe_heading_style [PARAMS_FILE] — DayPlan/WeekPlan section heading style
+# (issue #496): details (default) uses <details><summary> per formatting.md
+# (collapsible in GitHub/VS Code); markdown uses `## ` headings instead
+# (readable in viewers that render HTML literally, e.g. Obsidian — the PR's
+# original complaint). A missing key or file means details, so existing
+# installs keep working; an unknown value warns on stderr and also means
+# details.
+iwe_heading_style() {
+  local file="${1:-}" value
+  [ -f "$file" ] || { echo details; return 0; }
+  value=$(grep -E '^dayplan_weekplan_heading_style:' "$file" 2>/dev/null | head -1 \
+    | sed -E 's/^dayplan_weekplan_heading_style:[[:space:]]*//; s/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^["'"'"']//; s/["'"'"']$//')
+  case "$value" in
+    ''|details) echo details ;;
+    markdown) echo "$value" ;;
+    *)
+      # ${value} not $value before the closing guillemet: bash's parameter-
+      # name scanner can swallow the first byte of a following multibyte UTF-8
+      # character as part of the variable name (found running this function
+      # under `set -u`: "value<replacement-char>: unbound variable" — the same
+      # unbraced pattern already exists in iwe_calendar_source above and is a
+      # pre-existing, separate latent bug there, not fixed here/out of scope).
+      echo "WARN: params.yaml: dayplan_weekplan_heading_style «${value}» неизвестно (details|markdown), использую details" >&2
+      echo details ;;
+  esac
+}
+
+# iwe_render_heading_style STYLE — filters stdin, converting DayPlan/WeekPlan
+# section headings between the two forms iwe_heading_style selects (issue
+# #496). `details` (the default) passes text through unchanged — the
+# validator (.claude/hooks/protocol-artifact-validate.sh Check 1) already
+# accepts both forms, so this is purely a rendering choice, not a format
+# migration. Only converts the two literal patterns producers actually emit:
+# `<summary><b>TEXT</b></summary>` and `<summary><strong>TEXT</strong></summary>`
+# (the latter used by the captures section) — `<details[ open]>`/`</details>`
+# lines are dropped in markdown mode since `## ` headings need no wrapper.
+iwe_render_heading_style() {
+  local style="${1:-details}"
+  if [ "$style" != markdown ]; then
+    cat
+    return 0
+  fi
+  # delimiter `|` (not `#`): the replacement text itself is a `## ` heading,
+  # which would terminate a `#`-delimited s/// before reaching the capture
+  # group (found running this function for the first time: `sed: bad flag in
+  # substitute command: '#'`).
+  sed -E \
+    -e '/^<details( open)?>[[:space:]]*$/d' \
+    -e '/^<\/details>[[:space:]]*$/d' \
+    -e 's|^<summary><b>(.*)</b></summary>[[:space:]]*$|## \1|' \
+    -e 's|^<summary><strong>(.*)</strong></summary>[[:space:]]*$|## \1|'
+}
+
+# iwe_scheduler_model KEY DEFAULT [PARAMS_FILE] — model alias for one
+# strategist background scenario (issue #1092), read from a flat params.yaml
+# key (e.g. scheduler_model_week_review). A missing key means DEFAULT, so
+# existing installs keep working unchanged after this is added. A key that
+# is present but empty (or only whitespace) is a config error, not a silent
+# fallback to DEFAULT -- a user who just edited the file to change the model
+# and mistyped it should see that, not keep running the old hardcoded model
+# unaware the edit had no effect. No allowlist of known model aliases: that
+# would go stale as new ones ship and block them until the template catches up.
+iwe_scheduler_model() {
+  local key="$1" default="$2" file="${3:-}" value
+  [ -f "$file" ] || { printf '%s\n' "$default"; return 0; }
+  grep -qE "^${key}:" "$file" 2>/dev/null || { printf '%s\n' "$default"; return 0; }
+  value=$(grep -E "^${key}:" "$file" | head -1 \
+    | sed -E "s/^${key}:[[:space:]]*//; s/[[:space:]]+#.*\$//; s/[[:space:]]+\$//; s/^[\"']//; s/[\"']\$//")
+  if [ -z "${value//[[:space:]]/}" ]; then
+    echo "ERROR: params.yaml: $key задан пустым значением — укажи алиас модели строкой или убери строку целиком, чтобы использовать $default" >&2
+    return 1
+  fi
+  printf '%s\n' "$value"
+}

@@ -44,6 +44,11 @@ while [[ $# -gt 0 ]]; do
     *)               DATE="$1"; shift ;;
   esac
 done
+# issue #924: an explicit --date/-d or positional date is the caller's exact choice
+# and is never second-guessed below; only the auto "today" default is a candidate
+# for the day_boundary shift (applied once $CONFIG is known, further down).
+DATE_WAS_AUTO=false
+[ -z "$DATE" ] && DATE_WAS_AUTO=true
 DATE="${DATE:-$(date +%Y-%m-%d)}"
 PROBE_START_S=$SECONDS
 
@@ -65,7 +70,7 @@ load_secrets() {
   # 2026-08-05 running --probe ahead of a scheduled test run).
   source_env_if_present "$HOME/.iwe/.proxy-env"
   # WP-484 F64 (06.08): TELEGRAM_* live in ~/.secrets/tg-bots (canonical source per
-  # lib/telegram.sh) — none of the three files above carry them on tsekh-1, so every
+  # lib/telegram.sh) — none of the three files above carry them on the remote server, so every
   # tg_notify on the server (incl. the "День открыт" digest and all aborts) was a
   # silent no-op since the migration. Same fix as day-open-pipeline-watchdog.sh.
   source_env_if_present "$HOME/.secrets/tg-bots"
@@ -95,11 +100,28 @@ tg_notify() {
     echo "  [strategist: intermediate TG notice deferred to owner]"
     return 0
   fi
+  # A scheduler retry after a deferral whose notice was DELIVERED earlier today (strategist.sh sets
+  # DAY_OPEN_QUIET_RETRY=1 from the "[tg delivered]" line below): the "started" and "deferred" notices went out with
+  # the first run, and the scheduler comes back up to seven times a day, so repeating them sent up to fourteen
+  # messages a day. The digest and every alarm still go out: the patterns match the START of the message (its emoji
+  # and fixed words), not a phrase somewhere inside a digest or an alarm reason (red team, round 37).
+  if [ "${DAY_OPEN_QUIET_RETRY:-}" = "1" ]; then
+    case "$msg" in
+      "🌅 Day Open pipeline started for "*|"⏸ Day Open "*" отложен: "*)
+        echo "  [retry after a deferral: TG suppressed] $msg" | head -1
+        return 0
+        ;;
+    esac
+  fi
   if [ -z "${TG_TOKEN:-}" ] || [ -z "${TG_CHAT:-}" ]; then
     echo "  [no tg credentials] $msg" | head -1
     return 1
   fi
   telegram_send "$msg" || { echo "  [tg delivery FAILED] $msg" | head -2; return 1; }
+  # What strategist.sh reads: only a delivered deferral notice lets the day's retries keep quiet (red team, round 38:
+  # after a failed first send the retries must try again, not stay silent all day).
+  echo "  [tg delivered] $msg" | head -1
+  return 0
 }
 
 # A refusal while the workspace is being resolved (below) happens before the normal path
@@ -174,6 +196,59 @@ export IWE_SCRIPTS
 # the first child process starts.
 export IWE_GOVERNANCE_REPO="$GOV_REPO"
 CONFIG="$DS_STRATEGY/exocortex/day-rhythm-config.yaml"
+
+# issue #924: day_boundary ("HH:MM", default none = no shift) lets the pilot say
+# that work done after midnight but before this hour still belongs to the day
+# that's ending, not a new one. Only the auto "today" default is a candidate —
+# an explicit --date/-d is the caller's exact choice and is never second-guessed.
+# Reads $IWE/memory/day-rhythm-config.yaml (the pilot's live config), not
+# $CONFIG ($DS_STRATEGY/exocortex/..., a snapshot day-close.sh only refreshes
+# once at Day Close) -- a same-day edit to day_boundary must take effect on
+# this same night's run, not wait for the next Day Close to refresh the
+# snapshot. day-open-scaffold.sh (step 3 below) already treats the live copy
+# as authoritative for the same reason (it passes it explicitly to
+# day-open-preflight.sh), this is the same source for the same key.
+# Scoped to the day_open: block (same precaution as STRATEGY_DAY_NAME below —
+# a same-named key elsewhere can't hijack this lookup; resets on the next
+# top-level key so a later block's own day_boundary can't be picked up
+# either) and skips commented-out lines: a bare top-level grep would also
+# match the shipped default's commented-out example line, silently turning
+# the shift on. Read for any date: the commit window of "yesterday" follows
+# the boundary even when --date is given explicitly.
+DAY_BOUNDARY=$(awk '
+  /^[^[:space:]]/ && !/^day_open:/ { f=0 }
+  /^day_open:/ { f=1 }
+  f && /day_boundary:/ && !/^[[:space:]]*#/ { print; exit }
+' "$IWE/memory/day-rhythm-config.yaml" 2>/dev/null \
+  | sed -E 's/.*day_boundary:[[:space:]]*"?([0-9]{1,2}:[0-9]{2})"?.*/\1/')
+if [ "$DATE_WAS_AUTO" = true ] && [[ "$DAY_BOUNDARY" =~ ^([0-9]{1,2}):([0-9]{2})$ ]]; then
+  boundary_min=$(( 10#${BASH_REMATCH[1]} * 60 + 10#${BASH_REMATCH[2]} ))
+  now_min=$(( 10#$(date +%H) * 60 + 10#$(date +%M) ))
+  if [ "$now_min" -lt "$boundary_min" ]; then
+    DATE=$(date -j -v-1d -f "%Y-%m-%d" "$DATE" "+%Y-%m-%d" 2>/dev/null \
+      || date -d "$DATE - 1 day" "+%Y-%m-%d" 2>/dev/null)
+  fi
+fi
+
+# issue #924: the day boundary also decides which commits belong to "yesterday".
+# Half-open window [YDAY <boundary>, DATE <boundary>) as "SINCE|UNTIL" for
+# `git log`: a commit exactly at the boundary opens the new day, none is counted
+# twice. No boundary (or 00:00) keeps the calendar day. KEEP IN SYNC with the
+# copy in day-open-pipeline.sh / day-open-scaffold.sh (test_issue_924 compares them).
+iwe_day_window() {
+  local yday="$1" today="$2" b="${3:-}" bm=0 em
+  if [[ "$b" =~ ^([0-9]{1,2}):([0-9]{2})$ ]]; then
+    bm=$(( 10#${BASH_REMATCH[1]} * 60 + 10#${BASH_REMATCH[2]} ))
+  fi
+  if [ "$bm" -eq 0 ]; then
+    printf '%s 00:00:00|%s 23:59:59' "$yday" "$yday"
+    return 0
+  fi
+  em=$(( bm - 1 ))
+  printf '%s %02d:%02d:00|%s %02d:%02d:59' \
+    "$yday" $(( bm / 60 )) $(( bm % 60 )) "$today" $(( em / 60 )) $(( em % 60 ))
+}
+
 # shellcheck source=lib/ledger-path.sh
 . "$SCRIPT_HOME/lib/ledger-path.sh"
 
@@ -208,7 +283,7 @@ echo "  snapshot refresh pid=$SNAPSHOT_PID (background, non-blocking)"
 . "$SCRIPT_HOME/lib/telegram.sh"
 
 # --- Helper: portable single-field read from a Y-m-d date string ---
-# BSD `date -j` (macOS) vs GNU `date -d` (Linux/tsekh-1) -- third use of this
+# BSD `date -j` (macOS) vs GNU `date -d` (Linux/remote server) -- third use of this
 # exact shape (P2: YDAY_DOW below was the second, inlined before this existed).
 portable_date_field() {
   local input="$1" fmt="$2"
@@ -270,7 +345,7 @@ load_secrets
 # Checks by file presence in git history, not commit message prefix —
 # so both automated ("feat(dayplan):") and manual ("day-open:") commits are detected.
 # WP-484 (2026-07-14): fetch origin first. Day Open now runs independently from
-# both the pilot's Mac (01:00) and the always-on tsekh-1 server (scheduler
+# both the pilot's Mac (01:00) and the always-on remote server (scheduler
 # catch-up, 04:00-22:00) as a deliberate primary+backup pair — a local-only git
 # log missed a same-day commit the other side had already pushed, so whichever
 # ran second redid the whole scaffold+LLM-fill for nothing.
@@ -356,7 +431,9 @@ WEEKPLAN_PATH=$(ls -t "$CURRENT_DIR"/WeekPlan\ *.md 2>/dev/null | grep -v '(prob
 WP_REGISTRY="$DS_STRATEGY/docs/WP-REGISTRY.md"
 # WP-7 Ф-DRIFT-DATA-PIPELINES D1 (13.07): было memory/cp-profile.json, который не
 # писал ни один механизм. update-derived-snapshot.py (шаг 1.5 выше) уже пишет сюда.
-CP_PROFILE="$DS_STRATEGY/inbox/WP-425/cache/derived_snapshot.json"
+# issue #1132: inbox/WP-425/ — платформенный номер РП автора, не имеющий смысла
+# для чужого governance-репо; путь должен совпадать с _resolve_snapshot_path().
+CP_PROFILE="$DS_STRATEGY/.cache/derived_snapshot.json"
 CALENDAR_OUT="$IWE/.tmp/calendar-$DATE.txt"
 # issue #877: the shipped script carries NO built-in gateway address. The old
 # default was the maintainer's private Railway gateway, which a user install can
@@ -394,7 +471,7 @@ PROXY_PORT="${PROXY_PORT:-18765}"
 PROXY_PID=""
 # WP-484 Ф48b (04.08): a remote gateway is the normal target. This pipeline runs
 # on either machine of the dual-machine pair (see note below) -- a Mac-local
-# address is simply wrong on tsekh-1, and was the root cause of the
+# address is simply wrong on the remote server, and was the root cause of the
 # 30.07/02.08/04.08 stale-credential recurrences on the Mac. Local-only
 # branches below (spawn-if-missing, kill-on-port self-heal) only make sense
 # for an actual localhost target, so they're gated on PROXY_IS_LOCAL.
@@ -568,7 +645,8 @@ if [ "$FORCE" != "true" ]; then
     # Only defer when there was actually work to close: if yesterday had zero commits
     # in the governance repo, there is nothing to close and deferring would stall the
     # plan forever on a genuinely quiet day.
-    YDAY_COMMITS=$(cd "$DS_STRATEGY" && git log HEAD origin/main --since="$YDAY 00:00:00" --until="$YDAY 23:59:59" --format=%H 2>/dev/null | head -1)
+    YDAY_WINDOW=$(iwe_day_window "$YDAY" "$DATE" "$DAY_BOUNDARY")
+    YDAY_COMMITS=$(cd "$DS_STRATEGY" && git log HEAD origin/main --since="${YDAY_WINDOW%%|*}" --until="${YDAY_WINDOW##*|}" --format=%H 2>/dev/null | head -1)
 
     if [ "${YDAY_DOW:-0}" = "$STRATEGY_DOW" ]; then
       YDAY_LEDGER="machine/ledger/$(ledger_path_rel day "$YDAY")"  # git-relative, see comment below
@@ -715,7 +793,7 @@ fi
 # ============================================
 # 1.3. Input freshness self-heal (WP-484 Ф90, 2026-08-12): priorities.yaml and
 # WP-REGISTRY.md are read straight off local disk by LLM Fill below. On a
-# shared checkout (tsekh-1) a live agent session can hold the tree's sync
+# shared checkout (remote server) a live agent session can hold the tree's sync
 # semaphore for hours after finishing its own work (found live: 11h46m past
 # report.md completion) — the periodic sync timer correctly refuses to touch
 # the tree while that semaphore stands, so these two files silently go stale
@@ -800,10 +878,10 @@ echo "  Proxy OK"
 # opened). Same request contract as day-open-llm-fill.py: no "model" field, the
 # proxy routes by verification_class.
 # WP-484 Ф50b (04.08): LLM_PROXY_SECRET was never actually provisioned anywhere
-# this pipeline runs -- confirmed live from tsekh-1. What IS already provisioned
+# this pipeline runs -- confirmed live from the remote server. What IS already provisioned
 # and already authenticates against this same gateway: PROXY_SHARED_SECRET
 # (root-only /etc/iwe/env, used by iwe-llm-health/iwe-overnight-auditor) and
-# ANTHROPIC_API_KEY (~/.iwe/.proxy-env, tseren-readable -- the one this pipeline's
+# ANTHROPIC_API_KEY (~/.iwe/.proxy-env, readable by the pilot's own account -- the one this pipeline's
 # actual execution context can see). Falls back through what's really there
 # instead of requiring a secret nobody would ever provision under this exact name.
 LLM_PROXY_SECRET="${LLM_PROXY_SECRET:-${PROXY_SHARED_SECRET:-${ANTHROPIC_API_KEY:-}}}"
@@ -835,7 +913,7 @@ if [ "$AUTH_CODE" != "200" ]; then
     # Remote gateway (WP-484 Ф48b, 04.08): no local process to kill -- Railway
     # supervises its own restarts (railway.toml restartPolicyType=ON_FAILURE).
     # A 401 here almost always means LLM_PROXY_SECRET is unset/wrong on this
-    # host (confirmed missing on tsekh-1 at cutover time), not a crashed
+    # host (confirmed missing on the remote server at cutover time), not a crashed
     # process -- one short wait only covers a mid-deploy blip on Railway's side.
     echo "  Authorized probe failed (HTTP $AUTH_CODE) on remote gateway — short wait and retry once"
     sleep 5
@@ -968,7 +1046,7 @@ mkdir -p "$(dirname "$DAY_OPEN_LOG")"
 # here must not block the DayPlan, same principle as the ${IWE_GOVERNANCE_REPO:-DS-strategy} git
 # pull below. Found live 04.09 (WP-417 peer-session
 # 2026-09-04-09-wp417-panel-verify-close): the repo was never cloned on
-# tsekh-1 at all, so the tile silently showed "not calculated" every day.
+# the remote server at all, so the tile silently showed "not calculated" every day.
 # PD_DASHBOARD_CLONE_URL is per-installation (e.g. a read-only deploy-key SSH
 # alias) -- unset means this reader wasn't provisioned, skip quietly, same as
 # any other unconfigured optional integration in this pipeline.
@@ -1172,7 +1250,7 @@ else
 # Sync with remote to avoid non-fast-forward push (race with other agents)
 # WP-484 (2026-07-19): route through git-dirty-guard.sh first — a bare pull --rebase
 # aborts the whole pipeline on the routine dirty tree sync-strategy-files.sh leaves on
-# tsekh-1 (see git-dirty-guard.sh header). The guard either self-heals a stale mirror
+# the remote server (see git-dirty-guard.sh header). The guard either self-heals a stale mirror
 # or confirms real uncommitted work is present; a plain pull is only safe after that.
 #
 # NON-FATAL as of 2026-07-26 (WP-484, root-caused the 04:35 26.07 ledger-render
