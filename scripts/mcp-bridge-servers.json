@@ -1,0 +1,35 @@
+{
+  "iwe": {
+    "kind": "http",
+    "url": "https://mcp.aisystant.com/mcp",
+    "protocol": "2024-11-05",
+    "auth": "iwe-oauth"
+  },
+  "tilda": {
+    "kind": "http",
+    "url": "https://tilda.ru/api/mcp/",
+    "protocol": "2026-07-28",
+    "auth": "file",
+    "token_file": "/root/IWE/.secrets/tilda-mcp2.token",
+    "extra_headers": { "MCP-Protocol-Version": "2026-07-28" }
+  },
+  "gdrive": {
+    "kind": "stdio",
+    "cmd": ["/usr/local/bin/google-drive-mcp", "start", "--transport", "stdio"],
+    "env": { "GOOGLE_DRIVE_OAUTH_CREDENTIALS": "/root/IWE/.secrets/gcp-oauth.keys.json" }
+  },
+  "google-calendar": {
+    "kind": "stdio",
+    "cmd": ["/usr/local/bin/google-calendar-mcp", "start"],
+    "env": { "GOOGLE_OAUTH_CREDENTIALS": "/root/IWE/.secrets/gcp-oauth.keys.json" }
+  },
+  "deepseek_search": {
+    "kind": "stdio",
+    "cmd": ["/usr/bin/python3", "/root/.codex/deepseek-search-mcp.py"]
+  },
+  "iwe-local-gateway": {
+    "kind": "stdio",
+    "cmd": ["node", "/root/IWE/DS-MCP/local-gateway/dist/server.js"],
+    "env": { "IWE_AGENT_ID": "codex" }
+  }
+}

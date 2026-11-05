@@ -1,0 +1,8 @@
+{
+  "excluded_paths": [
+    "scripts/README-mcp-bridge.md",
+    "scripts/iwe-mcp-call.py",
+    "scripts/mcp-bridge-servers.json",
+    "scripts/mcp-call.py"
+  ]
+}
