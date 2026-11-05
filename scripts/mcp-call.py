@@ -42,6 +42,17 @@ def load_servers() -> dict:
     return json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
 
 
+def _mcp_meta(cfg: dict) -> dict:
+    """Метаданные протокола, которые требуют строгие MCP-шлюзы (Tilda)."""
+    return {
+        "io.modelcontextprotocol/protocolVersion": cfg["protocol"],
+        "io.modelcontextprotocol/clientCapabilities": {
+            "tools": {}, "resources": {}, "prompts": {}, "logging": {},
+        },
+        "io.modelcontextprotocol/clientInfo": {"name": "codex", "version": "0.1.0"},
+    }
+
+
 # --- OAuth (iwe) ---------------------------------------------------------
 
 def _iwe_cred() -> dict:
@@ -115,11 +126,16 @@ def _file_token(path: str) -> str:
 
 # --- HTTP transport ------------------------------------------------------
 
-def _http_request(payload: dict, cfg: dict, token: str, session: str | None = None) -> tuple[str, str | None]:
+def _http_request(payload: dict, cfg: dict, token: str, session: str | None = None,
+                  mcp_name: str | None = None) -> tuple[str, str | None]:
     headers = ["-H", f"Authorization: Bearer {token}",
                "-H", "Content-Type: application/json",
                "-H", "Accept: application/json, text/event-stream",
                "-H", f"User-Agent: {USER_AGENT}"]
+    if cfg.get("method_header") and payload.get("method"):
+        headers += ["-H", f"Mcp-Method: {payload['method']}"]
+    if cfg.get("method_header") and mcp_name:
+        headers += ["-H", f"Mcp-Name: {mcp_name}"]
     for name, value in cfg.get("extra_headers", {}).items():
         headers += ["-H", f"{name}: {value}"]
     if session:
@@ -151,29 +167,41 @@ def _http_token(cfg: dict) -> str:
 
 def _http_call(cfg: dict, tool: str, args: dict) -> dict:
     token = _http_token(cfg)
+    init_params = {"protocolVersion": cfg["protocol"], "capabilities": {},
+                   "clientInfo": {"name": "codex", "version": "0.1.0"}}
+    if cfg.get("meta"):
+        init_params["_meta"] = _mcp_meta(cfg)
     init = {
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": {"protocolVersion": cfg["protocol"], "capabilities": {},
-                   "clientInfo": {"name": "codex", "version": "0.1.0"}},
+        "params": init_params,
     }
     body, sid = _http_request(init, cfg, token)
+    call_params = {"name": tool, "arguments": args}
+    if cfg.get("meta"):
+        call_params["_meta"] = _mcp_meta(cfg)
     payload = {
         "jsonrpc": "2.0", "id": 2, "method": "tools/call",
-        "params": {"name": tool, "arguments": args},
+        "params": call_params,
     }
-    body, _ = _http_request(payload, cfg, token, sid)
+    body, _ = _http_request(payload, cfg, token, sid, mcp_name=tool)
     return json.loads(body)
 
 
 def _http_tools(cfg: dict) -> list[str]:
     token = _http_token(cfg)
+    init_params = {"protocolVersion": cfg["protocol"], "capabilities": {},
+                   "clientInfo": {"name": "codex", "version": "0.1.0"}}
+    if cfg.get("meta"):
+        init_params["_meta"] = _mcp_meta(cfg)
     init = {
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": {"protocolVersion": cfg["protocol"], "capabilities": {},
-                   "clientInfo": {"name": "codex", "version": "0.1.0"}},
+        "params": init_params,
     }
     body, sid = _http_request(init, cfg, token)
-    payload = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
+    list_params = {}
+    if cfg.get("meta"):
+        list_params["_meta"] = _mcp_meta(cfg)
+    payload = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": list_params}
     body, _ = _http_request(payload, cfg, token, sid)
     data = json.loads(body)
     return [t.get("name") for t in data.get("result", {}).get("tools", [])]

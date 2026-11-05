@@ -10,8 +10,10 @@
     "url": "https://tilda.ru/api/mcp/",
     "protocol": "2026-07-28",
     "auth": "file",
-    "token_file": "/root/IWE/.secrets/tilda-mcp2.token",
-    "extra_headers": { "MCP-Protocol-Version": "2026-07-28" }
+    "token_file": "/root/IWE/.secrets/tilda-mcp3.token",
+    "extra_headers": { "MCP-Protocol-Version": "2026-07-28" },
+    "method_header": true,
+    "meta": true
   },
   "gdrive": {
     "kind": "stdio",

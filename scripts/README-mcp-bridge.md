@@ -49,7 +49,7 @@ python3 scripts/mcp-call.py call google-calendar list-calendars '{}'
 | Сервер | Транспорт | Инструменты | Прямой вызов |
 |---|---|---|---|
 | iwe | http + OAuth | get_instructions, agent_status_*, knowledge_* | ✅ работает |
-| tilda | http + токен | список инструментов через прямой вызов пуст | ⚠️ сервер отвечает, tools/list пуст |
+| tilda | http + токен | 278 | ✅ работает |
 | gdrive | stdio | 120 | ✅ работает |
 | google-calendar | stdio | 13 | ✅ работает |
 | deepseek_search | stdio | search_web, fetch_page | ✅ работает |
