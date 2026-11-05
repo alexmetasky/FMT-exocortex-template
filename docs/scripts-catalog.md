@@ -27,7 +27,7 @@
 | `check-wp-transfer-completeness.sh` | `scripts/check-wp-transfer-completeness.sh` | проверка перед архивацией inbox/WP-N/: |
 | `claude-peer-adapter.sh` | `scripts/claude-peer-adapter.sh` | адаптер Claude для peer-conversation (роль напарника) |
 | `close-wp.sh` | `scripts/close-wp.sh` | Закрытие РП: зачёркивает строку в REGISTRY, дописывает ## Закрытие в archive/wp-contexts/ |
-| `codex-peer-adapter.sh` | `scripts/codex-peer-adapter.sh` | Codex CLI (ChatGPT) adapter for peer-conversation.sh. |
+| `codex-peer-adapter.sh` | `scripts/codex-peer-adapter.sh` | Codex CLI (ChatGPT) adapter for peer-conversation.sh; explicit provider, model override, and per-call MCP denylist. |
 | `coverage-skills.sh` | `scripts/coverage-skills.sh` | детектор B12a/B12b/B12c/B12d (promotion coverage) |
 | `create-skill.sh` | `scripts/create-skill.sh` | создать scaffold нового скилла IWE (SKILL.md v2) |
 | `create-wp.sh` | `scripts/create-wp.sh` | атомарное создание РП в локальных местах (inbox, REGISTRY, WeekPlan); |

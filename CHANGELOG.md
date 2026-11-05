@@ -23,6 +23,11 @@ Refs: WP-NNN
 
 ## [Unreleased]
 
+### Changed
+
+- [security] `scripts/codex-peer-adapter.sh`: проверяющий Codex по умолчанию сохраняет все MCP-серверы из общего конфига, но в сессии можно отключить выбранные через `CODEX_PEER_MCP_DENY=iwe,tilda`; `*` отключает все. Неизвестное имя останавливает вызов, а не игнорируется молча. При наличии deny-списка приватный конфиг проходит через `scripts/lib/peer-mcp-deny.py`. Тест `scripts/tests/test_peer_mcp_deny.sh` и интеграционная проверка в `test-codex-peer-providers.sh`.
+- [behavior] `scripts/codex-peer-adapter.sh`: модель OpenAI по умолчанию — `gpt-6.1-terra`. Переопределение на вызов: `--model <имя>` или `CODEX_PEER_MODEL=<имя>`, флаг важнее переменной. Имя чужой модели отвергается с ошибкой, а не подменяется молча.
+
 ## [0.41.11] — 2026-11-02
 
 ### Added
