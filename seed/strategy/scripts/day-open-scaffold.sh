@@ -1854,7 +1854,7 @@ ${MANDATORY_DAILY_WPS:-  (не задано — day-rhythm-config.yaml не со
 
 **Бюджет дня:** $BUDGET_FORMAT_HINT
 
-**Mandatory check:** WP-7 (техдолг бота, ≥30 мин) + ≥1 контентный РП — <!-- PENDING: проверить наличие в плане -->
+**Проверка обязательных РП:** <!-- PENDING: проверить наличие в плане только требований из активного mandatory_daily_wps; если список не задан, обязательных РП нет -->
 
 **Carry-over из Day Close вчера ($YDAY):**
 ${DAY_CLOSE_CARRY_OVER:-нет (Day Close не найден)}
@@ -1936,7 +1936,7 @@ $WORLD_SECTION
 <details>
 <summary><b>Контекст недели (W$WEEK_NUM)</b></summary>
 
-<!-- PENDING: bottleneck-week — запустить /bottleneck-pick --target weekplan --layer intra --horizon week --depth 1 и вставить 4-6 строк ПЕРВОЙ подсекцией: SC-failing, Bottleneck, Class (Policy/Resource/Cognitive), Этап 1, Сигнал. Source: extensions/day-open.after.md:158-191 -->
+<!-- PENDING: bottleneck-week — определить ограничение недели по актуальному WeekPlan и заполнить строку ниже; если данных недостаточно, указать это. -->
 
 **Горлышко недели (SC-first, $DATE):** <!-- PENDING -->
 
