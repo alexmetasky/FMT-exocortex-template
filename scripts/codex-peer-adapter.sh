@@ -9,17 +9,6 @@
 #
 # Env overrides:
 #   CODEX_BIN     — override codex binary path
-#   CODEX_PEER_PROVIDER — openai or deepseek; isolate provider configuration
-#     for this call without changing the interactive Codex configuration.
-#     Example: printf 'Review this claim: 2 + 2 = 4' | \
-#       CODEX_PEER_PROVIDER=deepseek IWE_PEER_PLAIN=1 bash codex-peer-adapter.sh
-#     OpenAI defaults to Terra; DeepSeek defaults to Flash. Pass --model or
-#     CODEX_PEER_MODEL to change the model for this call.
-#     Pass --add-dir DIR to review a filtered copy of files in DIR.
-#   CODEX_PEER_MODEL — default model for this peer call. `--model` overrides it.
-#   CODEX_PEER_MCP_DENY — comma-separated MCP server names to disable in the
-#     private config. Unset/empty = keep all servers; "*" = disable all;
-#     an unknown name aborts the call.
 #   IWE_TEMPLATE  — path to FMT-exocortex-template for optional Hindsight retain
 #   IWE_PEER_LOCK_DIR, IWE_HINDSIGHT_RETAIN — same as kimi-peer-adapter.sh
 #   CODEX_PEER_REASONING_EFFORT — model_reasoning_effort passed to `codex exec`
@@ -101,9 +90,6 @@ fi
 
 ADD_DIRS=()
 MODEL_ARG=()
-if [ -n "${CODEX_PEER_MODEL:-}" ]; then
-  MODEL_ARG=("--model" "$CODEX_PEER_MODEL")
-fi
 
 # WP-516 Phase 5: cross-vendor whitelist (§0в.1) = {-p, --model, --add-dir}.
 # An unknown flag is an explicit error, not a silent ignore: otherwise the requested
@@ -128,14 +114,8 @@ done
 
 if [ ${#MODEL_ARG[@]} -ge 2 ]; then
   case "${MODEL_ARG[1]-}" in
-    sonnet|opus|haiku|claude-*)
-      echo "ERROR: model '${MODEL_ARG[1]}' is not supported by the codex adapter" >&2
-      exit 1
-      ;;
+    sonnet|opus|haiku|claude-*) MODEL_ARG=() ;;
   esac
-fi
-if [ ${#MODEL_ARG[@]} -eq 0 ] && [ "${CODEX_PEER_PROVIDER:-}" = "openai" ]; then
-  MODEL_ARG=("--model" "gpt-6.1-terra")
 fi
 
 # === Filtering --add-dir via .agentigore + PII sanity-check (neighboring copies) ===
@@ -260,58 +240,6 @@ cleanup_peer() {
 }
 trap cleanup_peer EXIT INT TERM
 [ -x "$_IWE_ARS" ] && bash "$_IWE_ARS" --session-id "$CODEX_SESSION_ID" codex peer-session "$CODEX_TASK" </dev/null >/dev/null 2>&1 &
-
-# Peer calls keep the writer's MCP servers by default. A private, temporary
-# Codex home is created only when the provider is overridden or selected MCP
-# servers are disabled; that copy is where CODEX_PEER_MCP_DENY is applied.
-SOURCE_CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
-MCP_DENY="${CODEX_PEER_MCP_DENY:-}"
-if [ -n "${CODEX_PEER_PROVIDER:-}" ] || [ -n "$MCP_DENY" ]; then
-  if [ ! -f "$SOURCE_CODEX_HOME/config.toml" ]; then
-    echo "ERROR: private peer configuration requires Codex config: $SOURCE_CODEX_HOME/config.toml" >&2
-    exit 1
-  fi
-  PRIVATE_CODEX_HOME="$TMP_ROOT/codex-home"
-  mkdir -m 700 "$PRIVATE_CODEX_HOME" || exit 1
-  cp "$SOURCE_CODEX_HOME/config.toml" "$PRIVATE_CODEX_HOME/config.toml" || exit 1
-  chmod 600 "$PRIVATE_CODEX_HOME/config.toml" || exit 1
-  for AUTH_FILE in auth.json .credentials.json; do
-    if [ -f "$SOURCE_CODEX_HOME/$AUTH_FILE" ]; then
-      cp "$SOURCE_CODEX_HOME/$AUTH_FILE" "$PRIVATE_CODEX_HOME/$AUTH_FILE" || exit 1
-      chmod 600 "$PRIVATE_CODEX_HOME/$AUTH_FILE" || exit 1
-    fi
-  done
-
-  if [ -n "${CODEX_PEER_PROVIDER:-}" ]; then
-    case "$CODEX_PEER_PROVIDER" in
-      openai|deepseek) ;;
-      *) echo "ERROR: CODEX_PEER_PROVIDER must be openai or deepseek" >&2; exit 1 ;;
-    esac
-    PROVIDER_SWITCH="${IWE_ROOT:-$HOME/IWE}/scripts/codex-provider-switch.py"
-    if [ ! -f "$PROVIDER_SWITCH" ]; then
-      echo "ERROR: provider switcher is missing: $PROVIDER_SWITCH" >&2
-      exit 1
-    fi
-    if ! python3 "$PROVIDER_SWITCH" --config "$PRIVATE_CODEX_HOME/config.toml" "$CODEX_PEER_PROVIDER" >/dev/null; then
-      echo "ERROR: could not prepare isolated provider configuration" >&2
-      exit 1
-    fi
-  fi
-
-  if [ -n "$MCP_DENY" ]; then
-    MCP_DENY_SCRIPT="$TEMPLATE_SCRIPTS/lib/peer-mcp-deny.py"
-    if [ ! -s "$MCP_DENY_SCRIPT" ]; then
-      echo "ERROR: MCP denylist helper is missing: $MCP_DENY_SCRIPT" >&2
-      exit 1
-    fi
-    if ! python3 "$MCP_DENY_SCRIPT" --config "$PRIVATE_CODEX_HOME/config.toml" \
-         --deny "$MCP_DENY"; then
-      echo "ERROR: could not apply MCP denylist" >&2
-      exit 1
-    fi
-  fi
-  export CODEX_HOME="$PRIVATE_CODEX_HOME"
-fi
 
 # === Launch Codex headless: `codex exec`, -o for a clean file with the final answer + process-group watchdog ===
 OUT_FILE="$TMP_ROOT/codex-output.txt"

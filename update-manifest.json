@@ -661,7 +661,7 @@
     },
     {
       "path": ".claude/skills/peer-conversation/SKILL.md",
-      "sha256": "6ef41218984672179601d14a1d46b0ba04567cc13867ba8ee7e93b0f6d13d040"
+      "sha256": "4840e2aea19989687df314e049cd0dcd67bc6efb8af997d9481f7d4015899251"
     },
     {
       "path": ".claude/skills/personal-guide-render/SKILL.md",
@@ -913,7 +913,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "0e05dc14155a367a48d6614242eca448c77bed1c5237909e2a998e250a8ba258"
+      "sha256": "56911ed473288e98ec3d09be109a6ccf540588beb03e9ef515155deba66cca31"
     },
     {
       "path": "CLAUDE.md",
@@ -1113,7 +1113,7 @@
     },
     {
       "path": "docs/scripts-catalog.md",
-      "sha256": "da07f6a229484ddf4acef43df31d7cd0c3af08e2deb9c7595740308a0219e2b9"
+      "sha256": "7a90476694f2c4ca5eda4d332a13a677d59f11640df676ee040f514ef03ab41f"
     },
     {
       "path": "docs/skills-catalog.md",
@@ -2325,7 +2325,7 @@
     },
     {
       "path": "scripts/codex-peer-adapter.sh",
-      "sha256": "e751ed2233d1e18e1ee46166722f2b656582314f54014a593fe4e4a31b22f7cc"
+      "sha256": "8467c60856b3ee1c1d688757f418fc0049fa394451241631813be213254a53ff"
     },
     {
       "path": "scripts/config/pipeline-security-whitelist.yaml",
@@ -2694,10 +2694,6 @@
     {
       "path": "scripts/lib/peer-adapter-common.sh",
       "sha256": "edcae15bb9b456db9b03f0a585ee4246e83c7e97c491328aafd063366382ec57"
-    },
-    {
-      "path": "scripts/lib/peer-mcp-deny.py",
-      "sha256": "d2899f2792ca8c2597788c3f567195eedfbf3246a5bc2a6489cca0ce1c8fadc6"
     },
     {
       "path": "scripts/lib/runtime-placeholder-count.sh",
@@ -3483,7 +3479,6 @@
     "scripts/tests/test_ar293_ai_cli_override.sh",
     "scripts/tests/test_assemble_distribution.py",
     "scripts/tests/test_changelog_append_blank_lines.sh",
-    "scripts/tests/test-codex-peer-providers.sh",
     "scripts/tests/test_copy_to_aisystant.py",
     "scripts/tests/test_day_close_prepare.py",
     "scripts/tests/test_day_open_checks_runner_false_positive.sh",
@@ -3645,7 +3640,6 @@
     "scripts/tests/test_manifest_coverage_local.py",
     "scripts/tests/test_mount_readonly_packs.sh",
     "scripts/tests/test_normalize_en_phase_labels.py",
-    "scripts/tests/test_peer_mcp_deny.sh",
     "scripts/tests/test_pending_lock.py",
     "scripts/tests/test_pending_phases_sweep.sh",
     "scripts/tests/test_release_notice_build.py",
