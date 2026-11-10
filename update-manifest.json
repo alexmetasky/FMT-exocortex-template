@@ -2580,10 +2580,6 @@
       "sha256": "879f0f0602289604b2ba512105123be7ee672ef4b6cb04f1347adbb0682895fe"
     },
     {
-      "path": "scripts/iwe-multipath.py",
-      "sha256": "2bc20bf869195220748b1b0961a1219aab328279df5b36d48c092dcdaef6f631"
-    },
-    {
       "path": "scripts/iwe-safe-pull.sh",
       "sha256": "c652753f4f8dec4ad2c9c1fcac71dfe698ee0150e4864ab44b95780c59be4805"
     },
