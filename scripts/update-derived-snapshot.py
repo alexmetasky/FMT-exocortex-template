@@ -2,7 +2,7 @@
 """
 Periodic updater for the local derived_snapshot.json (WP-425 Level 2a).
 
-Fetches cp-profile from Aisystant Cloud MCP via headless claude subprocess,
+Fetches cp-profile from Aisystant Cloud MCP via a headless DSH subprocess,
 parses 3_4_qualification schema, writes to local cache.
 
 Design: runs in launchd (Sunday 08:00) and optionally from Day Open (--if-stale-days).
@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 from typing import Optional
@@ -100,11 +101,10 @@ _STAGE_INT_TO_LABEL = {
 # RCS slots tracked in rcs_indices (M3/IT/A are rarely bottlenecks but included for completeness).
 _RCS_SLOTS = ["W", "M1", "M2", "M3", "M4", "IT", "A"]
 
-# Claude Code registers MCP tools as mcp__<server>__<tool>; the short tool name
-# alone never matches --allowedTools, so a headless call is silently denied at
-# the permission gate (no TTY to prompt) and every retry fails the same way.
-# See bug-2026-07-12-digital-twin-fetch-fails-headless.md.
-_ALLOWED_TOOL_DT_READ = "mcp__claude_ai_IWE__dt_read_digital_twin"
+# `dsh headless` reaches the MCP tool through the iwe-knowledge server configured
+# in the headless profile, so no per-tool allow-list is needed (the old Claude Code
+# path needed --allowedTools with the mcp__<server>__<tool> name, see
+# bug-2026-07-12-digital-twin-fetch-fails-headless.md).
 
 
 def _is_stale(stale_days: int) -> bool:
@@ -120,9 +120,21 @@ def _is_stale(stale_days: int) -> bool:
         return True
 
 
-def _fetch_derived_via_headless_claude() -> dict:
+def _dsh_env() -> dict:
+    """Environment for `dsh headless`: it needs a DeepSeek key, absent under launchd/cron."""
+    if os.environ.get("DEEPSEEK_API_KEY"):
+        return {}
+    root = pathlib.Path(os.environ.get("IWE_ROOT", str(pathlib.Path.home() / "IWE")))
+    try:
+        key = (root / ".secrets" / "deepseek-api-key").read_text(encoding="utf-8").strip()
+    except OSError:
+        return {}
+    return {"DEEPSEEK_API_KEY": key} if key else {}
+
+
+def _fetch_derived_via_headless_dsh() -> dict:
     """
-    Call headless claude to read 3_derived path from Aisystant MCP.
+    Call headless DSH to read the 3_derived path from Aisystant MCP.
 
     Returns the parsed qualification dict, or raises RuntimeError on failure.
     """
@@ -131,27 +143,45 @@ def _fetch_derived_via_headless_claude() -> dict:
         "Return ONLY a valid JSON object with the full response content — "
         "no explanation, no markdown fences, just raw JSON."
     )
+    dsh_bin = os.environ.get("IWE_DSH_BIN") or shutil.which("dsh") or "dsh"
     try:
         result = subprocess.run(
-            ["claude", "-p", prompt, "--allowedTools", _ALLOWED_TOOL_DT_READ,
-             "--output-format", "text"],
-            capture_output=True, text=True, timeout=120,
+            [dsh_bin, "headless", "--json", prompt],
+            capture_output=True, text=True, timeout=240,
+            env={**os.environ, **_dsh_env()},
         )
     except FileNotFoundError as exc:
-        raise RuntimeError("claude CLI not found — ensure it is in PATH") from exc
+        raise RuntimeError("dsh CLI not found — ensure it is in PATH") from exc
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("claude subprocess timed out after 120s") from exc
+        raise RuntimeError("dsh subprocess timed out after 240s") from exc
 
     if result.returncode != 0:
-        raise RuntimeError(
-            f"claude exited {result.returncode}: {result.stderr[:300]}"
-        )
+        raise RuntimeError(f"dsh exited {result.returncode}: {result.stderr[:300]}")
 
-    raw = result.stdout.strip()
+    # `--json` emits newline-delimited run events; the answer arrives in `final`.
+    final = None
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") == "final":
+            final = event
+    if final is None:
+        raise RuntimeError("dsh produced no final event")
+
+    kind = (final.get("reason") or {}).get("kind")
+    if kind and kind != "completed":
+        raise RuntimeError(f"dsh run did not complete: {kind}")
+
+    raw = (final.get("text") or "").strip()
     if not raw:
-        raise RuntimeError("claude returned empty output")
+        raise RuntimeError("dsh returned empty output")
 
-    # Strip markdown code fences if claude adds them despite the prompt.
+    # Strip markdown code fences if the model adds them despite the prompt.
     if raw.startswith("```"):
         lines = raw.splitlines()
         raw = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
@@ -159,7 +189,9 @@ def _fetch_derived_via_headless_claude() -> dict:
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Failed to parse JSON from claude output: {exc}\nOutput: {raw[:200]}") from exc
+        raise RuntimeError(
+            f"Failed to parse JSON from dsh output: {exc}\nOutput: {raw[:200]}"
+        ) from exc
 
 
 def _parse_qualification(response: dict) -> dict:
@@ -194,9 +226,18 @@ def _parse_qualification(response: dict) -> dict:
     if not stage:
         raise RuntimeError(f"Unknown stage_id '{stage_id}' and no fallback stage in response")
 
+    # RCS indices moved under pre_bridge in schema v6 (2026-10); the top-level
+    # key the parser was built for is absent there, which is why the fetch could
+    # succeed and the parse still fail. Keep both shapes readable.
     rcs = qual.get("rcs_indices", {})
     if isinstance(rcs, str):
         rcs = json.loads(rcs)
+    if not isinstance(rcs, dict) or not rcs:
+        pre = qual.get("pre_bridge")
+        if isinstance(pre, dict):
+            rcs = pre.get("rcs_indices", {}) or {}
+            if isinstance(rcs, str):
+                rcs = json.loads(rcs)
     if not isinstance(rcs, dict):
         raise RuntimeError(f"rcs_indices has unexpected type {type(rcs).__name__}")
     # Each slot is {"idx": N, ...metadata} (calibrated/streak/events), not a bare
@@ -269,9 +310,9 @@ def main() -> int:
         logging.info("Snapshot is fresh (< %d days old) — skipping update", args.if_stale_days)
         return 0
 
-    logging.info("Fetching 3_derived via headless claude...")
+    logging.info("Fetching 3_derived via headless dsh...")
     try:
-        response = _fetch_derived_via_headless_claude()
+        response = _fetch_derived_via_headless_dsh()
     except Exception as exc:
         # Broad on purpose: this is a cron/launchd entry point — any unexpected
         # failure (incl. shapes we didn't anticipate) must log one clean line,

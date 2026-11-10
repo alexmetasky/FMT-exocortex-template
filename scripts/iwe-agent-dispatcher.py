@@ -9,13 +9,15 @@ SoT (Source-of-Truth): ~/IWE/<governance-repo>/scripts/iwe-agent-dispatcher.py
   - DS-autonomous-agents/scripts/
 Синхронизация: `cp <canonical> <target>` + `git add -u && git commit -m "sync iwe-agent-dispatcher"`
 
-Канал: headless `claude -p` (Claude Code CLI в неинтерактивном режиме).
+Канал по умолчанию: `dsh headless --json` (DeepSeek Harness). Claude Code
+(`claude -p`), Kimi и Codex остаются доступными исполнителями, если их CLI установлены.
 Не зависит от RemoteTrigger v1→v2 translation bug (см. bugs/bug-2026-05-17).
 
 Цикл:
   1. git pull --rebase в рабочем клоне governance-репо
   2. Скан inbox/agent/tasks/TASK-*.md → найти status: pending AND due ≤ now
-  3. Для каждой: загрузить template, подставить params, вызвать `claude -p`
+  3. Для каждой: загрузить template, подставить params, вызвать исполнитель
+     (`dsh headless` по умолчанию)
   4. Записать inbox/agent/results/RESULT-<task-id>.md
   5. Обновить task frontmatter (status: pending → completed/failed, assigned_at, completed_at)
   6. Один commit на task → git push
@@ -927,13 +929,13 @@ EXECUTORS: dict[str, "Executor"] = {
     "kimi": KimiCliExecutor(),
     "dsh": DshExecutor(),
 }
-# WP-53: the default runtime is configurable so a DeepSeek-run installation can
-# stop depending on the Claude CLI without editing this file.
-DEFAULT_EXECUTOR = os.environ.get("IWE_DISPATCHER_DEFAULT_EXECUTOR", "claude")
+# WP-53: the default runtime is DeepSeek Harness — an installation no longer
+# depends on the Claude CLI. Override per installation with the env var.
+DEFAULT_EXECUTOR = os.environ.get("IWE_DISPATCHER_DEFAULT_EXECUTOR", "dsh")
 
 
 def resolve_executor(executor_key: str | None) -> "Executor":
-    """Map a SESSION `executor` value to an Executor, defaulting to Claude.
+    """Map a SESSION `executor` value to an Executor, defaulting to DSH.
 
     Unknown values fall back to the default with a warning rather than failing —
     the dispatcher must keep serving the pilot even if the bot writes a value it
