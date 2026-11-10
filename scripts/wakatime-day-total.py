@@ -9,6 +9,13 @@ an empty line with exit 0 on some installs (issue #1414), and can only answer
 for the current day, so a Day Close after midnight got the wrong day
 (issue #1398).
 
+Auth: a personal OAuth token from ~/.wakatime/oauth_token wins when present,
+otherwise the API key from WAKATIME_API_KEY / env files / ~/.wakatime.cfg.
+Since 2026-11-01 WakaTime API keys are write-only — sending them to summaries
+answers 403 "API Keys are only for plugins", so the key path only still works
+for self-hosted servers and pre-cutoff accounts. The key itself stays valid
+for the heartbeat (write) path and is not touched here.
+
 Exit 0: stdout is the total seconds (integer, > 0).
 Exit 3: no value; stdout is a short reason in parentheses for the caller to
 show as is. Never fabricates a number.
@@ -24,6 +31,7 @@ import urllib.request
 from datetime import date
 
 ENV_FILES = ("~/.config/aist/env", "~/.iwe/.exocortex.env", "~/.wakatime.env")
+OAUTH_TOKEN_FILE = "~/.wakatime/oauth_token"
 KEY_LINE = re.compile(
     r"^(?:export\s+)?WAKATIME_API_KEY\s*=\s*([\"']?)([^\"'\n]+)\1\s*$"
 )
@@ -32,6 +40,19 @@ KEY_LINE = re.compile(
 def no_value(reason):
     print(f"({reason})")
     sys.exit(3)
+
+
+def find_oauth_token():
+    """Personal OAuth token for reads (Bearer), created at wakatime.com/oauth."""
+    path = os.path.expanduser(OAUTH_TOKEN_FILE)
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip() or None
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeError) as exc:
+        print(f"wakatime-day-total: cannot read {path}: {exc}", file=sys.stderr)
+        return None
 
 
 def key_from_env_file(path):
@@ -97,16 +118,23 @@ def main():
         print(f"wakatime-day-total: not a YYYY-MM-DD date: {target!r}", file=sys.stderr)
         sys.exit(2)
 
-    api_key = find_api_key()
-    if not api_key:
+    oauth_token = find_oauth_token()
+    api_key = None if oauth_token else find_api_key()
+    if not oauth_token and not api_key:
         no_value(
-            "WAKATIME_API_KEY not found — use Neon fallback: domain_event coding_time"
+            "no WakaTime credentials (~/.wakatime/oauth_token or WAKATIME_API_KEY)"
+            " — use Neon fallback: domain_event coding_time"
         )
     url = f"https://wakatime.com/api/v1/users/current/summaries?start={target}&end={target}"
-    auth = base64.b64encode(f"{api_key}:".encode()).decode()
-    req = urllib.request.Request(
-        url, headers={"Authorization": f"Basic {auth}", "Accept": "application/json"}
-    )
+    if oauth_token:
+        headers = {
+            "Authorization": f"Bearer {oauth_token}",
+            "Accept": "application/json",
+        }
+    else:
+        auth = base64.b64encode(f"{api_key}:".encode()).decode()
+        headers = {"Authorization": f"Basic {auth}", "Accept": "application/json"}
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             body = json.loads(resp.read().decode("utf-8"))

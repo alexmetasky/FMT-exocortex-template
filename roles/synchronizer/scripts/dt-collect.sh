@@ -80,53 +80,79 @@ fi
 # ============================================================
 
 collect_wakatime() {
-    if [ -z "${WAKATIME_API_KEY:-}" ]; then
+    # Since 2026-11-01 the WakaTime API key is write-only: summaries signed
+    # with it answer 403 "API Keys are only for plugins". Reads therefore
+    # prefer the personal OAuth token from ~/.wakatime/oauth_token (Bearer);
+    # the key stays the fallback for self-hosted servers and older accounts.
+    local OAUTH_TOKEN=""
+    if [ -f "$HOME/.wakatime/oauth_token" ]; then
+        OAUTH_TOKEN=$(tr -d '[:space:]' < "$HOME/.wakatime/oauth_token")
+    fi
+    if [ -z "${WAKATIME_API_KEY:-}" ] && [ -z "$OAUTH_TOKEN" ]; then
         log "WAKATIME_API_KEY not set — skipping WakaTime"
         echo "{}"
         return
     fi
 
-    local ENCODED
-    ENCODED=$(echo -n "$WAKATIME_API_KEY" | base64)
+    local AUTH_HEADER
+    if [ -n "$OAUTH_TOKEN" ]; then
+        AUTH_HEADER="Authorization: Bearer $OAUTH_TOKEN"
+    else
+        AUTH_HEADER="Authorization: Basic $(echo -n "$WAKATIME_API_KEY" | base64)"
+    fi
     local API="https://wakatime.com/api/v1/users/current"
 
     # Today
     local TODAY_RESP
-    TODAY_RESP=$(curl -s -H "Authorization: Basic $ENCODED" "$API/summaries?start=$DATE&end=$DATE" 2>/dev/null || echo "{}")
+    TODAY_RESP=$(curl -s -H "$AUTH_HEADER" "$API/summaries?start=$DATE&end=$DATE" 2>/dev/null || echo "{}")
 
     # Last 7 days
     local D7=$(portable_date_offset 7)
     local WEEK_RESP
-    WEEK_RESP=$(curl -s -H "Authorization: Basic $ENCODED" "$API/summaries?start=$D7&end=$DATE" 2>/dev/null || echo "{}")
+    WEEK_RESP=$(curl -s -H "$AUTH_HEADER" "$API/summaries?start=$D7&end=$DATE" 2>/dev/null || echo "{}")
 
     # Last 30 days
     local D30=$(portable_date_offset 30)
     local MONTH_RESP
-    MONTH_RESP=$(curl -s -H "Authorization: Basic $ENCODED" "$API/summaries?start=$D30&end=$DATE" 2>/dev/null || echo "{}")
+    MONTH_RESP=$(curl -s -H "$AUTH_HEADER" "$API/summaries?start=$D30&end=$DATE" 2>/dev/null || echo "{}")
 
-    python3 -c "
+    # Responses go through temp files, not into the `python3 -c` argument:
+    # the 30-day summaries body is ~226 KB and the kernel caps one exec
+    # argument at 128 KB (MAX_ARG_STRLEN), so an inlined payload killed
+    # python3 with "Argument list too long" and this collector silently
+    # returned {} (found 2026-11-11 while fixing the WakaTime auth).
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    printf '%s' "$TODAY_RESP" > "$tmpdir/today.json"
+    printf '%s' "$WEEK_RESP" > "$tmpdir/week.json"
+    printf '%s' "$MONTH_RESP" > "$tmpdir/month.json"
+
+    if ! python3 - "$tmpdir" 2>/dev/null <<'PY'
 import sys, json
+from pathlib import Path
 
-def safe_load(s):
+root = Path(sys.argv[1])
+
+def safe_load(name):
     try:
-        return json.loads(s)
-    except:
+        return json.loads((root / name).read_text())
+    except Exception:
         return {}
 
-today = safe_load('''$TODAY_RESP''')
-week = safe_load('''$WEEK_RESP''')
-month = safe_load('''$MONTH_RESP''')
+today = safe_load('today.json')
+week = safe_load('week.json')
+month = safe_load('month.json')
 
 def total_seconds(resp):
     try:
         return int(resp['cumulative_total']['seconds'])
-    except:
+    except Exception:
         return 0
 
 def active_days(resp):
     try:
         return sum(1 for d in resp.get('data', []) if d.get('grand_total', {}).get('total_seconds', 0) > 0)
-    except:
+    except Exception:
         return 0
 
 def top_items(resp, key, limit=10):
@@ -148,7 +174,11 @@ result = {
     'top_editors': top_items(month, 'editors', 5),
 }
 print(json.dumps(result))
-" 2>/dev/null || echo "{}"
+PY
+    then
+        echo "{}"
+    fi
+    rm -rf "$tmpdir"
 }
 
 # ============================================================

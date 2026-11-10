@@ -38,9 +38,18 @@ except Exception:
 " "$HOME/.wakatime.cfg")
 fi
 
-if [ -z "$WAKATIME_API_KEY" ]; then
+if [ -z "$WAKATIME_API_KEY" ] && [ ! -f "$HOME/.wakatime/oauth_token" ]; then
     echo "WAKATIME_API_KEY not set"
     exit 0  # graceful — don't break strategist if no key
+fi
+
+# Since 2026-11-01 the API key is write-only: summaries signed with it answer
+# 403 "API Keys are only for plugins". Reads therefore prefer the personal
+# OAuth token from ~/.wakatime/oauth_token (Bearer); the key stays as the
+# fallback for self-hosted servers and accounts from before the cutoff.
+OAUTH_TOKEN=""
+if [ -f "$HOME/.wakatime/oauth_token" ]; then
+    OAUTH_TOKEN=$(tr -d '[:space:]' < "$HOME/.wakatime/oauth_token")
 fi
 
 ENCODED=$(echo -n "$WAKATIME_API_KEY" | base64)
@@ -48,7 +57,11 @@ API="https://wakatime.com/api/v1/users/current"
 
 waka_fetch() {
     local url="$1"
-    curl -s -H "Authorization: Basic $ENCODED" "$url" 2>/dev/null
+    if [ -n "$OAUTH_TOKEN" ]; then
+        curl -s -H "Authorization: Bearer $OAUTH_TOKEN" "$url" 2>/dev/null
+    else
+        curl -s -H "Authorization: Basic $ENCODED" "$url" 2>/dev/null
+    fi
 }
 
 format_projects() {

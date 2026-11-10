@@ -492,6 +492,10 @@
       "sha256": "b0cc9c75124cfd031faa42fcca9d630756555d04222e9946d0ff1aa1e5b2df51"
     },
     {
+      "path": ".claude/skills/day-close/day-close/SKILL.md",
+      "sha256": "95aa08ce8eec158f2851515a2ea1c949d6466af13958ef327d4b13855c1e5be2"
+    },
+    {
       "path": ".claude/skills/day-open/SKILL.md",
       "sha256": "d92986a5c3a290c56deff3a4f70b8cc219c22255ffcf6b6b5d71722b0201817e"
     },
@@ -628,6 +632,10 @@
       "sha256": "34bbbdbe7cf271f0b7a819c8aaa68764e8dd94c893c3b10cb2edabe3eae87768"
     },
     {
+      "path": ".claude/skills/lesson-close/SKILL.md",
+      "sha256": "350dbc63ad76e3f1fe64a317fc49bcb41ac78620862914fe59c3324f1724031f"
+    },
+    {
       "path": ".claude/skills/local-llm/SKILL.md",
       "sha256": "e1bbeaf699686673f74c424cc6b58ffca0a7100eb669a0aa243a85d4cb1816f3"
     },
@@ -741,7 +749,7 @@
     },
     {
       "path": ".claude/skills/setup-wakatime/SKILL.md",
-      "sha256": "242356373e1c2c791e9316e5a98043d80f83d902d36bdb7fc76f043089a80859"
+      "sha256": "cc1b1e5455969c33375ffc9f485512cd38cd7200e79db121351132e7ca28e66a"
     },
     {
       "path": ".claude/skills/skill-creator/SKILL.md",
@@ -826,6 +834,10 @@
     {
       "path": ".claude/skills/week-close/SKILL.md",
       "sha256": "946e65993ebfc3b3470e19a281837f4185ebbe617e3b3460bcff6dd937fd16bb"
+    },
+    {
+      "path": ".claude/skills/week-close/week-close/SKILL.md",
+      "sha256": "efcda66de3b2a902d5d0d8cac7734c2a6117ac46a113cf9fabca9c81e0e9dd84"
     },
     {
       "path": ".claude/skills/wp-new/SKILL.md",
@@ -1157,11 +1169,11 @@
     },
     {
       "path": "extensions/agent-inbox/scripts/gate_launch_usage.py",
-      "sha256": "6fdd28758c5d681203a8be0ac9a2a7176b36c14a8278eb318662cbfa04fe0c26"
+      "sha256": "541023e45633ce740c05775ea23a24392927e5f5c6632ee720e4872e1bb097c2"
     },
     {
       "path": "extensions/agent-inbox/scripts/iwe-agent-dispatcher.py",
-      "sha256": "56f68d9a3ed2ab84824f5988fc5c45beb32bc9db866fb7223c5beea7cfdbf6d0"
+      "sha256": "f191aa662c6bfd0f0d46f9b86c73cdb4401f4ece92657f574ab7a27b28e8b973"
     },
     {
       "path": "extensions/agent-inbox/templates/_template.md",
@@ -1577,7 +1589,7 @@
     },
     {
       "path": "memory/MEMORY.md",
-      "sha256": "016c8105b0b4b177e73a7495c8730878f9d1e17bfaed1ba394f7dac51316c33e"
+      "sha256": "7016cf161da6ad632371f64ae841a12e0b645595db9db70827adb77a726e6375"
     },
     {
       "path": "memory/agent-architecture-framework.md",
@@ -2009,7 +2021,7 @@
     },
     {
       "path": "roles/strategist/scripts/fetch-wakatime.sh",
-      "sha256": "c92121387e82cc5a81b4032f39efa33c9c394c2c53fc154740115deaa15a1df4"
+      "sha256": "04ccaefd1cabc338d40b060292a642b434f0d4e34bed7cbbee95d098865262f2"
     },
     {
       "path": "roles/strategist/scripts/launchd/com.strategist.morning.plist",
@@ -2077,7 +2089,7 @@
     },
     {
       "path": "roles/synchronizer/scripts/dt-collect.sh",
-      "sha256": "8773c1e3b794907d093cef4c8f823e85a0e8b44cadd4c2a026b2a775821ffe54"
+      "sha256": "28f1273d530d692a2605fe338a5c926961e3505e8f596c539e0007ec92b3760f"
     },
     {
       "path": "roles/synchronizer/scripts/launchd/com.exocortex.scheduler.plist",
@@ -2146,6 +2158,10 @@
     {
       "path": "roles/verifier/role.yaml",
       "sha256": "f4bd2e894b668ef39227936c8e21de6546a65a804e12b71b5991c50baded1ee5"
+    },
+    {
+      "path": "scripts/README-mcp-bridge.md",
+      "sha256": "e331f49ea86c7ad4e816b2c5ca37ad098d4a532ac825334e03f0f3e367274f0a"
     },
     {
       "path": "scripts/active-wp-sweep.sh",
@@ -2457,7 +2473,7 @@
     },
     {
       "path": "scripts/gate_launch_usage.py",
-      "sha256": "6fdd28758c5d681203a8be0ac9a2a7176b36c14a8278eb318662cbfa04fe0c26"
+      "sha256": "541023e45633ce740c05775ea23a24392927e5f5c6632ee720e4872e1bb097c2"
     },
     {
       "path": "scripts/generate-catalogs.py",
@@ -2525,7 +2541,7 @@
     },
     {
       "path": "scripts/iwe-agent-dispatcher.py",
-      "sha256": "56f68d9a3ed2ab84824f5988fc5c45beb32bc9db866fb7223c5beea7cfdbf6d0"
+      "sha256": "da80e0a43f95c9eb9391b8fa5f456614024c981f990f6c3ed97ba631d3e92b85"
     },
     {
       "path": "scripts/iwe-audit.sh",
@@ -2578,6 +2594,10 @@
     {
       "path": "scripts/iwe-grep-secret.sh",
       "sha256": "879f0f0602289604b2ba512105123be7ee672ef4b6cb04f1347adbb0682895fe"
+    },
+    {
+      "path": "scripts/iwe-mcp-call.py",
+      "sha256": "b05cd2a1131863ace0b98a9279c8c1059c974e155f8c848f2e0b5a1999e37600"
     },
     {
       "path": "scripts/iwe-safe-pull.sh",
@@ -2636,6 +2656,10 @@
       "sha256": "d1c71ddb34b12c8c71131dfc525fb48555dc5be6bd557fcb9b405e9c0f538d0c"
     },
     {
+      "path": "scripts/lesson-close.sh",
+      "sha256": "202440eae8e614d2f2e8675af63efb0a0b053b5b3832083aec8f6e64f1324023"
+    },
+    {
       "path": "scripts/lib/common.sh",
       "sha256": "74ea2d29c1da9837043cd33308b3e838f0ee886a8bff9ed10d12d228ec5c40cd"
     },
@@ -2692,6 +2716,10 @@
       "sha256": "edcae15bb9b456db9b03f0a585ee4246e83c7e97c491328aafd063366382ec57"
     },
     {
+      "path": "scripts/lib/peer-mcp-deny.py",
+      "sha256": "d2899f2792ca8c2597788c3f567195eedfbf3246a5bc2a6489cca0ce1c8fadc6"
+    },
+    {
       "path": "scripts/lib/runtime-placeholder-count.sh",
       "sha256": "aaf8074591d8f4ffe86eda0e378a9a0c90b9ae9a4ff325d560246b30baded6ba"
     },
@@ -2718,6 +2746,14 @@
     {
       "path": "scripts/llm-proxy-launcher.sh",
       "sha256": "b9bf747cc57f85c5618a7bc1d963d4630a674684b7fefdf68123bca301057b2b"
+    },
+    {
+      "path": "scripts/mcp-bridge-servers.json",
+      "sha256": "d89421d1889924f311c5bcc7c1bcebc5262c1699e8b511fbedea62aa9ac7c10a"
+    },
+    {
+      "path": "scripts/mcp-call.py",
+      "sha256": "3ee41435e119b6ab7e47fd16595cbe3927fb9e3020955e9b8785fc547e49189c"
     },
     {
       "path": "scripts/median-ratio.conf",
@@ -2886,6 +2922,10 @@
     {
       "path": "scripts/sync_feedback_to_memory.py",
       "sha256": "64546c07323752ce6092c0ed1095699cd1738dbe308dc4a6743b2dbdf4eb0d92"
+    },
+    {
+      "path": "scripts/template-sync.sh",
+      "sha256": "64ba58ccafb65a917e563b3169df5420300b4846de7736df5c3f3656352f308f"
     },
     {
       "path": "scripts/test-route-task.sh",
@@ -3153,7 +3193,7 @@
     },
     {
       "path": "scripts/update-derived-snapshot.py",
-      "sha256": "f07f4b33b1902a10e5448f4c5eb35ea75bdba1c16c65c8e957b2996df88f3bbd"
+      "sha256": "f6d614ea74278a06326ae66d42b73e9b9999d16f871c4d25ade704763ba0b42a"
     },
     {
       "path": "scripts/validate-fmt-scripts.sh",
@@ -3181,7 +3221,7 @@
     },
     {
       "path": "scripts/wakatime-day-total.py",
-      "sha256": "8ca5a84bd53d2b494d6bfb50fd92a7f4353888521d2ffd26945c9b5ec53c59b1"
+      "sha256": "fe20f46c564d8468b7009689213144ec17cfeac1b078a5d8dfb34a6b0f7780b0"
     },
     {
       "path": "scripts/week-draft-append.sh",
@@ -3413,271 +3453,12 @@
     }
   ],
   "excluded_paths": [
-    ".github/workflows/nightly-template-audit.yml",
-    "docs/developer/README.md",
-    "docs/developer/card-template.md",
-    "docs/developer/code-style.md",
-    "docs/developer/developer-guide.md",
-    "docs/developer/external-developer-letter.md",
-    "docs/developer/proposal-process.md",
-    "docs/developer/testing-as-spec.md",
-    "docs/developer/working-with-claude.md",
-    "promotion-status.yaml",
-    "scripts/agent-dashboard.py",
-    "scripts/assemble_distribution.py",
-    "scripts/audit-ad-hoc-roles.py",
-    "scripts/check-component-parity.sh",
-    "scripts/check-copy-pairs.sh",
-    "scripts/check-manifest-rename-coverage.py",
-    "scripts/check-shipped-config-secrets.sh",
-    "scripts/delivery_checks.py",
-    "scripts/export-glossary-snapshot.py",
-    "scripts/fetch-glossary-concepts.py",
     "scripts/generate-helper-catalog.py",
-    "scripts/guide-kit-sync-state.yaml",
-    "scripts/guide-kit-sync.sh",
-    "scripts/iwe-catalog-list.py",
     "scripts/iwe-trace.py",
-    "scripts/release-notice-build.py",
-    "scripts/session-dispatcher-tsekh.py",
-    "scripts/tests/ancestry-hardening-lib.sh",
-    "scripts/tests/canon-reconcile-published-smoke.sh",
-    "scripts/tests/conftest.py",
-    "scripts/tests/day-open-llm-fill-today-plan-detect-smoke.sh",
-    "scripts/tests/day-open-no-autostash-smoke.py",
-    "scripts/tests/day-open-observer-smoke.sh",
-    "scripts/tests/day-open-world-fill-smoke.sh",
-    "scripts/tests/dryrun-gate-knowledge-namespace-regression.sh",
-    "scripts/tests/fixtures/ds-publish-637a526.sh",
-    "scripts/tests/git-sync-status-smoke.sh",
-    "scripts/tests/iwe-paths-scripts-resolution-smoke.sh",
-    "scripts/tests/lib/extract-update-download-batch.sh",
-    "scripts/tests/pull-on-touch-ff-only-smoke.sh",
-    "scripts/tests/session-guard-audit-validate-orz-batch-smoke.sh",
-    "scripts/tests/session-guard-isolate-minimal-smoke.sh",
-    "scripts/tests/session-guard-isolate-t1-t20-smoke.sh",
-    "scripts/tests/test-captures-write-lock-840.sh",
-    "scripts/tests/test-issue-1411-secret-scan-fp.sh",
-    "scripts/tests/test-issue-1411-update-rollback-unrelated-history.sh",
-    "scripts/tests/test-iwe-audit-fpf-copy.sh",
-    "scripts/tests/test-peer-session-finalize-index-lock.sh",
-    "scripts/tests/test-setup-extractor-feeders-linux-env.sh",
-    "scripts/tests/test-setup-git-identity-precheck.sh",
-    "scripts/tests/test-update-extractor-feeders.sh",
-    "scripts/tests/test-update-fpf-refresh.sh",
-    "scripts/tests/test_1229_sync_bundle.sh",
-    "scripts/tests/test_1230_publish.sh",
-    "scripts/tests/test_1231_artifactor.sh",
-    "scripts/tests/test_1234_fork_precommit.sh",
-    "scripts/tests/test_1235_backup_bootstrap.sh",
-    "scripts/tests/test_adopt_governance.sh",
-    "scripts/tests/test_agent_dashboard.py",
-    "scripts/tests/test_ar293_ai_cli_override.sh",
-    "scripts/tests/test_assemble_distribution.py",
-    "scripts/tests/test_changelog_append_blank_lines.sh",
-    "scripts/tests/test_copy_to_aisystant.py",
-    "scripts/tests/test_day_close_prepare.py",
-    "scripts/tests/test_day_open_checks_runner_false_positive.sh",
-    "scripts/tests/test_day_open_preflight_calendar_path.sh",
-    "scripts/tests/test_delivery_content.py",
-    "scripts/tests/test_delivery_formal.py",
-    "scripts/tests/test_dry_run_gate.py",
-    "scripts/tests/test_export_glossary_snapshot.py",
-    "scripts/tests/test_extractor_branch_cleanup.sh",
-    "scripts/tests/test_extractor_feed_quiet_on_empty.sh",
-    "scripts/tests/test_extractor_notify_repeat.sh",
-    "scripts/tests/test_fetch_glossary_concepts.py",
-    "scripts/tests/test_generate_manifest_deprecated_excluded.sh",
-    "scripts/tests/test_governance_ambiguity.sh",
-    "scripts/tests/test_issue_1003_ds_publish.sh",
-    "scripts/tests/test_issue_1004_claude_md_backup.sh",
-    "scripts/tests/test_issue_1004_step0_integrity.sh",
-    "scripts/tests/test_issue_1005_guarded_rm_canon.sh",
-    "scripts/tests/test_issue_1005_sync_gate_no_posix_signals.sh",
-    "scripts/tests/test_issue_1005_update_fpf_timeout_no_pkill.sh",
-    "scripts/tests/test_issue_1006_minor_findings.sh",
-    "scripts/tests/test_issue_1006_yml_author_scan.sh",
-    "scripts/tests/test_issue_1010_detectors.sh",
-    "scripts/tests/test_issue_1010_memory_limit.sh",
-    "scripts/tests/test_issue_1010_rc_idem.sh",
-    "scripts/tests/test_issue_1010_red_team_findings.sh",
-    "scripts/tests/test_issue_1010_update_idem.sh",
-    "scripts/tests/test_issue_1036_migration_source.sh",
-    "scripts/tests/test_issue_1037_filemode.sh",
-    "scripts/tests/test_issue_1038_python_env.py",
-    "scripts/tests/test_issue_1038_validator.sh",
-    "scripts/tests/test_issue_1061_platform_bottleneck_map.sh",
-    "scripts/tests/test_issue_1067_week_review_gave_up.sh",
-    "scripts/tests/test_issue_1084_runtime_placeholder_scope.sh",
-    "scripts/tests/test_issue_1099_residuals.sh",
-    "scripts/tests/test_issue_1099_rules_no_rsync.sh",
-    "scripts/tests/test_issue_1106_dt_collect_gov.sh",
-    "scripts/tests/test_issue_1146_smoke_cache_ignored.sh",
-    "scripts/tests/test_issue_1149_1156_windows_path_and_ru_regex.sh",
-    "scripts/tests/test_issue_1149_dayopen_carryover.sh",
-    "scripts/tests/test_issue_1150_curl_crlf.sh",
-    "scripts/tests/test_issue_1152_weekplan_row_layout.sh",
-    "scripts/tests/test_issue_1154_drift_scan_unresolved.py",
-    "scripts/tests/test_issue_1165_verify_skill_install_layout.sh",
-    "scripts/tests/test_issue_1174_detector_user_messages.sh",
-    "scripts/tests/test_issue_1201_router_log.sh",
-    "scripts/tests/test_issue_1209_isolate_branch.sh",
-    "scripts/tests/test_issue_1213_strategy_day_guard.sh",
-    "scripts/tests/test_issue_1254_repo_activity_utf8.py",
-    "scripts/tests/test_issue_1256_strategy_session_record.sh",
-    "scripts/tests/test_issue_1261_note_review_no_dayplan.sh",
-    "scripts/tests/test_issue_1263_refs.sh",
-    "scripts/tests/test_issue_1266_open_log.sh",
-    "scripts/tests/test_issue_1279_exo_publish.sh",
-    "scripts/tests/test_issue_1279_exocortex_freeze.sh",
-    "scripts/tests/test_issue_1279_open_log_isolate.sh",
-    "scripts/tests/test_issue_1279_orz_isolate.sh",
-    "scripts/tests/test_issue_1280_delivery_hint.sh",
-    "scripts/tests/test_issue_1280_publish_stamp.sh",
-    "scripts/tests/test_issue_1336_ws_paths.sh",
-    "scripts/tests/test_issue_1349_backup_dir.sh",
-    "scripts/tests/test_issue_1350_audit.sh",
-    "scripts/tests/test_issue_1351_tier0.sh",
-    "scripts/tests/test_issue_1352_bleed.sh",
-    "scripts/tests/test_issue_1362_strategy_day_carryover.sh",
-    "scripts/tests/test_issue_1367_sessions.sh",
-    "scripts/tests/test_issue_1398_week_draft_append.sh",
-    "scripts/tests/test_issue_1401_memory_divergence.sh",
-    "scripts/tests/test_issue_1401_memory_source.sh",
-    "scripts/tests/test_issue_1410_timezone_param.sh",
-    "scripts/tests/test_issue_496_heading_style.sh",
-    "scripts/tests/test_issue_529_owner_integrity.sh",
-    "scripts/tests/test_issue_530_staged_self_scan.sh",
-    "scripts/tests/test_issue_531_index_health_status_cell.py",
-    "scripts/tests/test_issue_532_dayplan_strategy_gate.sh",
-    "scripts/tests/test_issue_541_workspace_base.sh",
-    "scripts/tests/test_issue_544_staged_precommit.sh",
-    "scripts/tests/test_issue_545_sessions_root.sh",
-    "scripts/tests/test_issue_549_dryrun_redesign.sh",
-    "scripts/tests/test_issue_555_claude_silent_loss.sh",
-    "scripts/tests/test_issue_581_calendar_single_source.sh",
-    "scripts/tests/test_issue_582_audit_promoted_layout.sh",
-    "scripts/tests/test_issue_583_dayopen_yaml.sh",
-    "scripts/tests/test_issue_584_build_version.sh",
-    "scripts/tests/test_issue_596_weekreport_filename.sh",
-    "scripts/tests/test_issue_633_resolve_governance_branch.sh",
-    "scripts/tests/test_issue_657.sh",
-    "scripts/tests/test_issue_660.sh",
-    "scripts/tests/test_issue_665.sh",
-    "scripts/tests/test_issue_711_conflict_base.sh",
-    "scripts/tests/test_issue_713_registry_status.sh",
-    "scripts/tests/test_issue_729_strategy_day.sh",
-    "scripts/tests/test_issue_810_scan_selfexcl.sh",
-    "scripts/tests/test_issue_823_linked_wt.sh",
-    "scripts/tests/test_issue_836_reflection.sh",
-    "scripts/tests/test_issue_850_fork_guard.sh",
-    "scripts/tests/test_issue_851_cyrillic_slug.sh",
-    "scripts/tests/test_issue_869_claude_slug.sh",
-    "scripts/tests/test_issue_870_dayplan_validator.sh",
-    "scripts/tests/test_issue_871_registry_prefix.sh",
-    "scripts/tests/test_issue_872_skill_user_space.sh",
-    "scripts/tests/test_issue_874_here_string.sh",
-    "scripts/tests/test_issue_875_workspace_paths.sh",
-    "scripts/tests/test_issue_876_workspace_paths.sh",
-    "scripts/tests/test_issue_877_llm_proxy_default.sh",
-    "scripts/tests/test_issue_881_nudge_default.sh",
-    "scripts/tests/test_issue_882_archgate_scale.sh",
-    "scripts/tests/test_issue_884_ds_publish_missing.sh",
-    "scripts/tests/test_issue_884_ext.sh",
-    "scripts/tests/test_issue_886_weekreport_skeleton.sh",
-    "scripts/tests/test_issue_888_pull_on_touch_sync.sh",
-    "scripts/tests/test_issue_890_executor_catalog_invariants.py",
-    "scripts/tests/test_issue_891_loose_claude_files_delivery.sh",
-    "scripts/tests/test_issue_893_scaffold_only_fallback.sh",
-    "scripts/tests/test_issue_894_routing.sh",
-    "scripts/tests/test_issue_895_dangling_classifier_stub.sh",
-    "scripts/tests/test_issue_896_yookassa_digit_segment.sh",
-    "scripts/tests/test_issue_898_truncation_signal.sh",
-    "scripts/tests/test_issue_901_strategy_table_separator.sh",
-    "scripts/tests/test_issue_902_budget_spread_working_days.sh",
-    "scripts/tests/test_issue_905_build_active_wp_hint.sh",
-    "scripts/tests/test_issue_907_index_health_marker_parsing.py",
-    "scripts/tests/test_issue_909_token_not_configured_message.sh",
-    "scripts/tests/test_issue_911_day_close_windows_backup.py",
-    "scripts/tests/test_issue_912_extensions_gate_memory_symlink.sh",
-    "scripts/tests/test_issue_913_skills_catalog_symlink.sh",
-    "scripts/tests/test_issue_915_extractor_no_origin_pack.sh",
-    "scripts/tests/test_issue_924_day_window.sh",
-    "scripts/tests/test_issue_927_windows_console_encoding.sh",
-    "scripts/tests/test_issue_932_audit_skill_paths.sh",
-    "scripts/tests/test_issue_933_renamed_template_dir.sh",
-    "scripts/tests/test_issue_954_gate_ids.sh",
-    "scripts/tests/test_issue_954_locate.sh",
-    "scripts/tests/test_issue_954_wp_list_keys.py",
-    "scripts/tests/test_issue_954_wp_number_forms.sh",
-    "scripts/tests/test_issue_957_iwe_scripts_marker.sh",
-    "scripts/tests/test_issue_959_cleanup_parse_notes.py",
-    "scripts/tests/test_issue_961_note_review_pilot_only.sh",
-    "scripts/tests/test_issue_964_canary_status.sh",
-    "scripts/tests/test_issue_966_sessions_root.sh",
-    "scripts/tests/test_issue_969_strategy_session_isolated_copy.sh",
-    "scripts/tests/test_issue_973_transcribe_model_default.sh",
-    "scripts/tests/test_issue_974_day_open_pipeline_layout.sh",
-    "scripts/tests/test_issue_975_completion_reminder_r23.sh",
-    "scripts/tests/test_issue_979_weekplan_table.py",
-    "scripts/tests/test_issue_982_telegram_plan_list.sh",
-    "scripts/tests/test_issue_983_morning_alarm.sh",
-    "scripts/tests/test_issue_984_feeder_plist_iwe_scripts.sh",
-    "scripts/tests/test_issue_989_snapshot_cross_api.py",
-    "scripts/tests/test_issue_backups_scan.sh",
-    "scripts/tests/test_issue_extensions_dir_missing.sh",
-    "scripts/tests/test_issue_f267_capabilities.sh",
-    "scripts/tests/test_issue_f267_capability_guard.sh",
-    "scripts/tests/test_issue_f267_stage2.sh",
-    "scripts/tests/test_issue_python_resolver_contract.sh",
-    "scripts/tests/test_issue_wp516_verify_skill.py",
-    "scripts/tests/test_issues_919_920_929_day_open.sh",
-    "scripts/tests/test_issues_942_944_day_open.sh",
-    "scripts/tests/test_manifest_coverage_local.py",
-    "scripts/tests/test_mount_readonly_packs.sh",
-    "scripts/tests/test_normalize_en_phase_labels.py",
-    "scripts/tests/test_pending_lock.py",
-    "scripts/tests/test_pending_phases_sweep.sh",
-    "scripts/tests/test_release_notice_build.py",
-    "scripts/tests/test_release_receipt.sh",
-    "scripts/tests/test_residency_gate_skill_adapter.py",
-    "scripts/tests/test_session_guard_gitbash.sh",
-    "scripts/tests/test_session_guard_unknown_flag.sh",
-    "scripts/tests/test_setup_runtime_isolation.sh",
-    "scripts/tests/test_skill_promote.py",
-    "scripts/tests/test_sync_banner.py",
-    "scripts/tests/test_sync_code_scan_quiet.sh",
-    "scripts/tests/test_template_hygiene_checks.sh",
-    "scripts/tests/test_translate_delta.py",
-    "scripts/tests/test_translate_parse.py",
-    "scripts/tests/test_update_download_batch_network_failure_failclosed.sh",
-    "scripts/tests/test_update_drop_dead_railway_mcp.sh",
-    "scripts/tests/test_update_retry_and_classify_undeliverable_file.sh",
-    "scripts/tests/test_update_verify_batch_integrity_hash_mismatch_failclosed.sh",
-    "scripts/tests/test_validate_hypothesis_priority.sh",
-    "scripts/tests/test_wp568_strategist_auth_and_retry_message.sh",
-    "scripts/tests/test_wp_inbox_bundle_signal.sh",
-    "scripts/tests/wp-sync-bundle-origin-pinned-smoke.sh",
-    "scripts/translate.py",
-    "scripts/verify-template-integrity.sh",
+    "scripts/tests/test-codex-peer-providers.sh",
+    "scripts/tests/test_peer_mcp_deny.sh",
     "setup/detector-fixtures/README.md",
-    "setup/detector-fixtures/detector_07/negative_bash_fallback_bare_var.sh",
-    "setup/detector-fixtures/detector_07/negative_bash_fallback_iwe_var.sh",
-    "setup/detector-fixtures/detector_07/negative_env_fallback.md",
     "setup/detector-fixtures/detector_07/positive_backtick_slash.md",
-    "setup/detector-fixtures/detector_07/positive_bare_path_segment.sh",
-    "setup/detector-fixtures/detector_07/positive_disguised_wrong_var_fallback.sh",
-    "setup/detector-fixtures/detector_07/positive_dotgit_suffix.sh",
-    "setup/detector-fixtures/detector_07/positive_end_of_line.sh",
-    "setup/detector-fixtures/detector_07/positive_lowercase.sh",
-    "setup/detector-fixtures/detector_07/positive_mixedcase.sh",
-    "setup/detector-fixtures/detector_07/positive_parens.sh",
-    "setup/detector-fixtures/detector_07/positive_quote_before_slash.sh",
-    "setup/detector-fixtures/detector_07/positive_quoted_literal.md",
-    "setup/detector-fixtures/detector_07/positive_single_quotes.py",
-    "setup/detector-fixtures/detector_07/positive_single_quotes.sh",
-    "setup/detector-fixtures/detector_07/positive_tilde_path.sh",
-    "setup/detector-fixtures/detector_07/positive_uppercase.sh",
     "setup/detector-regex.sh",
     "setup/integration-contract-validator.sh",
     "setup/optional/COVER-IMAGES.md",
@@ -3687,67 +3468,15 @@
     "setup/optional/pomodoro-alert.py",
     "setup/optional/setup-agent-workspace.sh",
     "setup/optional/setup-calendar.sh",
-    "setup/promote-fixtures/README.md",
-    "setup/promote-fixtures/sample-hook.sh",
-    "setup/promote-fixtures/sample-script.sh",
-    "setup/promote-fixtures/sample-settings.json",
-    "setup/promote-fixtures/sample-skill/SKILL.md",
-    "setup/promote-fixtures/sample-skill/scripts/sample-tool.sh",
     "setup/release-audit-prompt.md",
     "setup/smoke-test-fresh-install.sh",
-    "setup/test-apply-op.sh",
-    "setup/test-attestation-build-statement.sh",
-    "setup/test-attestation-canonical-digest.sh",
-    "setup/test-build-runtime-preserves-live-state.sh",
-    "setup/test-check-changelog-entry.sh",
-    "setup/test-day-open-delivery-closure.sh",
-    "setup/test-delivery-route-label.sh",
     "setup/test-detectors.sh",
-    "setup/test-ds-publish.sh",
-    "setup/test-extractor-subscription-env.sh",
-    "setup/test-hook-dayplan-validator.sh",
-    "setup/test-issue-1216-env-merge-and-seed.sh",
-    "setup/test-issue-1217-download-batch-curl-k-path.sh",
-    "setup/test-next-rc-tag.sh",
-    "setup/test-scheduler-interval-slack.sh",
-    "setup/test-strategist-isolated-scenarios.sh",
-    "setup/test-strategist-mark-done.sh",
-    "setup/test-strategist-notereview-migration.py",
-    "setup/test-update-author-readonly-mirror.sh",
-    "setup/test-update-channel-enum.sh",
-    "setup/test-update-check-verdict.sh",
-    "setup/test-update-ds-publish-delivery.sh",
-    "setup/test-update-edge-cases.sh",
-    "setup/test-update-f220-changelog-dry-run-strict.sh",
-    "setup/test-update-install-path-provenance.sh",
-    "setup/test-update-issue-1143.sh",
-    "setup/test-update-issue-226.sh",
-    "setup/test-update-linux-scheduler.sh",
-    "setup/test-update-manifest-fetch.sh",
-    "setup/test-update-modified-hook.sh",
-    "setup/test-update-plan-executor.sh",
-    "setup/test-update-publish-gate-delivery.sh",
-    "setup/test-update-rc-channel.sh",
-    "setup/test-update-release-channel.sh",
-    "setup/test-update-self-overwrite.sh",
-    "setup/test-update-step0-staged-rename.sh",
-    "setup/test-update-write-sites.sh",
-    "setup/test-week-review-delivery-postcondition.sh",
-    "setup/update-write-sites.tsv",
-    "setup/ux-walkthrough-prompt.md",
-    "setup/wp529-f21-toggle-required-review.sh",
-    "translation/glossary-snapshot-allowlist.yaml",
-    "translation/glossary-snapshot.csv",
-    "translation/glossary-snapshot.meta.json"
+    "setup/ux-walkthrough-prompt.md"
   ],
   "deprecated_files": [
     {
       "path": ".claude/hooks/tests/test_issue_1183_precompact_system_msg.sh",
       "reason": "renamed to .claude/hooks/tests/test-issue-1183-precompact-checkpoint.sh (issue #1183, PR #1203): old test_issue_1183_ prefix false-matched the local secret scanner's YooKassa key pattern"
-    },
-    {
-      "path": "scripts/template-sync.sh",
-      "reason": "removed 2026-07-17 (e9cf822): functionality fully covered by the protected author-side sync pipeline (not shipped to the template). Forks that updated before removal keep an orphaned copy on disk without this entry (issue #486)."
     },
     {
       "path": "scripts/safe-pull.sh",
@@ -3849,22 +3578,6 @@
       "path": "scripts/tests/test_session_guard_unknown_flag.sh",
       "reason": "moved to excluded_paths[] (scripts/tests/ blanket pattern) after being in files[] by oversight — WP-7 Ф92",
       "excluded_confirmed": true
-    },
-    {
-      "path": ".claude/skills/lesson-close/SKILL.md",
-      "reason": "removed 2026-09-17 (ffceb51, issue #778): shipped in the general template without its counterpart /lesson (author-only skill). Since #1334 personal-guide-start does not ship /lesson or /lesson-close either: both are author-only skills, outside the template."
-    },
-    {
-      "path": "scripts/lesson-close.sh",
-      "reason": "removed 2026-09-17 (ffceb51, issue #778): companion script to the removed lesson-close skill, same reason."
-    },
-    {
-      "path": ".claude/skills/day-close/day-close/SKILL.md",
-      "reason": "issue #1415: stale v1.0.0 alias nested inside the day-close skill folder; recursive SKILL.md scanners (OpenCode) reported duplicate skill name day-close. The top-level .claude/skills/day-close/SKILL.md is the only skill."
-    },
-    {
-      "path": ".claude/skills/week-close/week-close/SKILL.md",
-      "reason": "issue #1415: stale v1.0.0 alias nested inside the week-close skill folder; recursive SKILL.md scanners (OpenCode) reported duplicate skill name week-close. The top-level .claude/skills/week-close/SKILL.md is the only skill."
     }
   ]
 }
