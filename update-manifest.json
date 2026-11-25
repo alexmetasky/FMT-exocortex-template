@@ -2861,7 +2861,7 @@
     },
     {
       "path": "scripts/session-guard.sh",
-      "sha256": "35998d5a2751e9d692d2ce04bdcf0e05b853bbdfba38873852412407e3d3b2eb"
+      "sha256": "a8ad5fdf2c12111a62eecdfdaadf62b6a228c32b7e2b7b3ced365034eb81d1f2"
     },
     {
       "path": "scripts/session-manifest-write.sh",
@@ -3150,6 +3150,10 @@
     {
       "path": "scripts/tests/test_role_runner_update_marker_guard.sh",
       "sha256": "6cc2682f2894ec2659c79e24a0f6bd16fd8efcf83d304d5236c0fde9e9241281"
+    },
+    {
+      "path": "scripts/tests/test_session_guard_housekeeping_tombstone.sh",
+      "sha256": "a09ab120865e70d655ced0153495560da220e1803fd22ff9d721c9e89b501bb0"
     },
     {
       "path": "scripts/tests/test_session_guard_hypothesis_gate.sh",

@@ -946,6 +946,34 @@ finally:
 PY
 }
 
+_retire_housekeeping_tombstone() { # <open path without .open> <.closed|.stale>
+  # A housekeeping close hardlinks <name>.open to <name>.open.closed and unlinks
+  # the .open; a stale open is moved to <name>.open.stale. Both tombstones stay on
+  # disk. The names of housekeeping semaphores are fixed (one per agent + reason),
+  # so the next cycle starts with a foreign ­.closed / .stale next to its fresh
+  # .open. The .closed one then fails both _locked_open_identity (closed_info
+  # exists with a different inode) and the terminal hardlink in
+  # _terminal_close_no_clobber ("already exists with different content"), so the
+  # semaphore can never be closed again; the .stale one makes the stale-open
+  # rename collide ("terminal destination collision"). Observed 25.11.2026 on
+  # deepseek-housekeeping-day-{open,close}: leftovers dated 11.11, 22.11 and 24.11
+  # blocked the 25.11 close.
+  # Starting a new cycle is the moment the old tombstones stop being relevant:
+  # retire them under the transition lock, keeping them on disk as history (same
+  # shape as the manually rotated .closed.<stamp>.<suffix> files already present).
+  local base="$1" suffix="$2" stamp candidate n=1
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  candidate="${base}${suffix}.${stamp}.cycle-retired"
+  while [ -e "$candidate" ]; do
+    n=$((n + 1))
+    candidate="${base}${suffix}.${stamp}.${n}.cycle-retired"
+  done
+  mv -n "${base}${suffix}" "$candidate" || return 1
+  [ ! -e "${base}${suffix}" ] || return 1
+  echo "session-guard: tombstone $(basename "$base")${suffix} retired as $(basename "$candidate")" >&2
+  return 0
+}
+
 _terminal_move_no_clobber() { # <source> <terminal destination>
   python3 - "$1" "$2" <<'PY'
 import os
@@ -1540,6 +1568,15 @@ if [ "$CMD" = "open" ]; then
     HK_SESSION_ID="housekeeping-${HOUSEKEEPING}"
     _safe_session_token "$HK_SESSION_ID" || fail "open --housekeeping: идентификатор слишком длинный" 1
     _ensure_session_transition_lock "$HK_FILE" "$HK_SESSION_ID"
+    # Retire the tombstones of the previous cycle of this fixed (agent, reason)
+    # name before the fresh .open appears; otherwise this cycle's close (or the
+    # stale-open rename just below) inherits a collision it cannot resolve.
+    for HK_TOMBSTONE in .closed .stale; do
+      if [ -e "${HK_FILE}${HK_TOMBSTONE}" ]; then
+        _retire_housekeeping_tombstone "$HK_FILE" "$HK_TOMBSTONE" \
+          || fail "open --housekeeping: устаревшую квитанцию ${HK_FILE}${HK_TOMBSTONE} сдвинуть не удалось; новый open не создан" 1
+      fi
+    done
     HK_MAX_AGE=1800  # 30 minutes default TTL for housekeeping semaphores
     NOW_EPOCH=$(date +%s)
     if [ -f "$HK_FILE" ]; then
@@ -2255,6 +2292,15 @@ if [ "$CMD" = "close" ]; then
       fail "close --housekeeping: нет активной housekeeping-сессии '${HOUSEKEEPING}' для $AGENT" 3
     fi
     _ensure_session_transition_lock "$HK_FILE" "$HK_SESSION_ID"
+    # A .closed next to an open that carries no staged receipt cannot belong to
+    # this open: it is the tombstone of a previous cycle of the same fixed
+    # (agent, reason) name (bug 25.11.2026). Retire it instead of failing —
+    # otherwise the terminal hardlink below refuses the close forever and, while
+    # the open is younger than the TTL, `open` cannot retire it either.
+    if [ -e "${HK_FILE}.closed" ] && ! grep -q '^close_protocol: ' "$HK_FILE"; then
+      _retire_housekeeping_tombstone "$HK_FILE" .closed \
+        || fail "close --housekeeping: устаревшую квитанцию ${HK_FILE}.closed сдвинуть не удалось; open сохранён" 1
+    fi
     _locked_open_identity "$HK_FILE" "$AGENT" "$HK_SESSION_ID" 1 \
       || fail "close --housekeeping: exact identity/terminal state не прошли проверку" 1
     HK_CLOSE_ATTEMPT=$(_atomic_append_open "$HK_FILE" "$AGENT" "$HK_SESSION_ID" \
