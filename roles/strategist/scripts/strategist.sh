@@ -280,6 +280,22 @@ notify() {
         || true
 }
 
+# iwe-notify lookup without PATH (WP-568 Ф12 С4): the template's copy first
+# (this script runs from .iwe-runtime, so not next to it), then the override and
+# the other known places.
+find_iwe_notify() {
+    local candidate
+    for candidate in "${IWE_TEMPLATE:+$IWE_TEMPLATE/scripts/iwe-notify}" \
+        "${IWE_WORKSPACE:-$HOME/IWE}/FMT-exocortex-template/scripts/iwe-notify" "${IWE_NOTIFY_BIN:-}" \
+        "${IWE_SCRIPTS:+$IWE_SCRIPTS/iwe-notify}" "${IWE_WORKSPACE:-$HOME/IWE}/scripts/iwe-notify"; do
+        if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
 notify_telegram() {
     local scenario="$1"
     # WP-273 R5: notify.sh is read-only from FMT, not substituted (no placeholders).
@@ -941,7 +957,11 @@ ${prompt}"
         # already accepted in extractor.sh
         read -ra extra_flags <<< "$AI_CLI_EXTRA_FLAGS" || { log "ERROR: не удалось разобрать AI_CLI_EXTRA_FLAGS"; return 1; }
     else
-        extra_flags=("${model_args[@]}" --allowedTools "Read,Write,Edit,Glob,Grep,Bash${calendar_mcp:+,$calendar_mcp}")
+        # WP-67 (Визионер): the morning run cites 1-2 signals from the last day with real links.
+        # Without WebSearch/WebFetch the model can only invent URLs, so the two read-only web
+        # tools are part of the whitelist. They stay read-only: nothing here grants Write
+        # outside the paths the scenario's own prompt fixes.
+        extra_flags=("${model_args[@]}" --allowedTools "Read,Write,Edit,Glob,Grep,Bash,WebSearch,WebFetch${calendar_mcp:+,$calendar_mcp}")
     fi
     # issue #1279: on a frozen canon memory-exocortex-sync.sh mirrors into it only when the run
     # really holds the --canonical-owner right (otherwise it hands the change to
@@ -1377,10 +1397,15 @@ day_open_observe() {
         log "Day Open: сверка плана с origin не удалась (сеть?) — сигнал «нет плана» не шлю, отложил (код $DAY_OPEN_DEFERRED_RC)"
         exit "$DAY_OPEN_DEFERRED_RC"
     fi
-    if git -C "$WORKSPACE" cat-file -e "refs/remotes/origin/$GIT_DEFAULT_BRANCH:$plan_path" 2>/dev/null; then
-        log "SKIP: DayPlan $DATE уже опубликован на origin (владелец — серверный day-open); этот хост наблюдатель, пайплайн не запускаю"
-        exit 0
-    fi
+    # Day Close moves the plan to archive/day-plans/; an evening run that only
+    # looked in current/ reported a published plan as missing (18.11, WP-484 F313).
+    local archived_path="archive/day-plans/DayPlan $DATE.md" found_path
+    for found_path in "$plan_path" "$archived_path"; do
+        if git -C "$WORKSPACE" cat-file -e "refs/remotes/origin/$GIT_DEFAULT_BRANCH:$found_path" 2>/dev/null; then
+            log "SKIP: DayPlan $DATE уже опубликован на origin ($found_path; владелец — серверный day-open); этот хост наблюдатель, пайплайн не запускаю"
+            exit 0
+        fi
+    done
     local now today
     now=$(date +%H:%M)
     today=$(date +%Y-%m-%d)
@@ -2048,10 +2073,12 @@ case "$1" in
             if [ -f "$ENV_FILE" ]; then
                 set -a; source "$ENV_FILE"; set +a
                 ALERT_TEXT="⚠️ <b>Note-Review canary</b>: разбор не пометил новые заметки ✅предложено ($BOLD_NEW_BEFORE → $BOLD_NEW_AFTER новых жирных). Заметки остаются в inbox до решения пилота."
-                ALERT_JSON=$(printf '%s' "$ALERT_TEXT" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
-                curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-                    -H "Content-Type: application/json" \
-                    -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":${ALERT_JSON},\"parse_mode\":\"HTML\"}" >> "$LOG_FILE" 2>&1 || true
+                # WP-568 Ф12 С4: through iwe-notify, the one place that calls the Bot API.
+                if NOTIFY_BIN=$(find_iwe_notify); then
+                    "$NOTIFY_BIN" --source strategist --html -- "$ALERT_TEXT" >> "$LOG_FILE" 2>&1 || true
+                else
+                    log "WARN: Note-Review alert не отправлен: нет программы отправки iwe-notify (update.sh)"
+                fi
             fi
         fi
 

@@ -78,6 +78,38 @@ table_to_list() {
             }'
 }
 
+# markdown inline link -> Telegram HTML link (Telegram's parse_mode=HTML has no markdown).
+# Applied AFTER escape_html, so only the tags this function writes stay literal.
+md_links_to_html() {
+    sed -E 's/\[([^]]+)\]\(([^)]+)\)/<a href="\2">\1<\/a>/g'
+}
+
+# WP-67 (Камердинер): the day frame — the blockquote lines the Day Open writes under the
+# title (`> **Вводные дня:** …`, `> **Ставка дня:** …`, `> **Сегодня не делаем:** …`).
+# Absent block (older DayPlan, pipeline run without the role) -> empty output, the message
+# stays exactly what it was before: the table alone.
+day_frame_lines() {
+    local file="$1"
+    grep -E '^> \*\*(Вводные дня|Ставка дня|Сегодня не делаем)' "$file" 2>/dev/null \
+        | sed -E 's/^> //' \
+        | escape_html \
+        | sed -E 's/\*\*([^*]+)\*\*/<b>\1<\/b>/g; s/`([^`]+)`/<code>\1<\/code>/g'
+}
+
+# WP-67 (Визионер): the "Мир ИИ" details block — its bullet signals, each with a link and
+# the tie to an active WP. Same contract as day_frame_lines: no block -> empty output.
+visioner_lines() {
+    local file="$1"
+    awk '
+        /<summary><b>Мир ИИ/ { inside = 1; next }
+        inside && /^<\/details>/ { exit }
+        inside && /^-[[:space:]]/ { sub(/^-[[:space:]]+/, "• "); print }
+    ' "$file" 2>/dev/null \
+        | escape_html \
+        | md_links_to_html \
+        | sed -E 's/\*\*([^*]+)\*\*/<b>\1<\/b>/g; s/`([^`]+)`/<code>\1<\/code>/g'
+}
+
 get_github_link() {
     local file="$1"
     local filename
@@ -173,13 +205,19 @@ build_message() {
 
     case "$scenario" in
         "day-plan")
-            local title
+            local title frame visioner
             title=$(grep '^# ' "$file" | head -1 | sed 's/^# //' | escape_html)
             local plan_items
             plan_items=$(table_to_list "$file" "План на сегодня" | escape_html)
+            # WP-67: рамка дня (ставка) и сигналы Визионера идут в том же сообщении, не
+            # отдельными файлами. Пусто -> блок пропускается, сообщение остаётся прежним.
+            frame=$(day_frame_lines "$file")
+            visioner=$(visioner_lines "$file")
 
             printf "<b>📋 %s</b>\n\n" "$title"
+            if [ -n "$frame" ]; then printf "%s\n\n" "$frame"; fi
             printf "<b>План:</b>\n%s" "$plan_items"
+            if [ -n "$visioner" ]; then printf "\n\n<b>🌍 Мир ИИ:</b>\n%s\n" "$visioner"; fi
             ;;
 
         "session-prep")
