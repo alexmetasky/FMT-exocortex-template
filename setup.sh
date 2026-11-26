@@ -1136,12 +1136,49 @@ else
     fi
 fi
 
+# === 4g. Skills for DeepSeek Harness (DSH) ===
+# Skills live in <workspace>/.claude/skills. Claude Code reads that directory by
+# itself; DSH discovers skills only in .dsh/skills and .agents/skills, so without
+# this step a DSH agent sees none of the template's skills and every protocol that
+# starts with a skill (day-open, wp-new, artifactor) degrades to reading files.
+# Source-of-truth: setup/install-dsh-skills.sh. Idempotent, and a no-op when DSH
+# is not installed — an installation without DSH must not grow a ~/.dsh.
+if $DRY_RUN; then
+    bash "$TEMPLATE_DIR/setup/install-dsh-skills.sh" \
+        --workspace "$WORKSPACE_DIR" --dry-run 2>&1 | sed 's/^/  /'
+else
+    echo "[4g] Connecting template skills to DeepSeek Harness..."
+    if DSH_SKILLS_OUTPUT=$(bash "$TEMPLATE_DIR/setup/install-dsh-skills.sh" --workspace "$WORKSPACE_DIR" 2>&1); then
+        printf '%s\n' "$DSH_SKILLS_OUTPUT" | sed 's/^/  /'
+    else
+        printf '%s\n' "$DSH_SKILLS_OUTPUT" | sed 's/^/  /'
+        echo "  ⚠ навыки для DSH не подключены — запусти вручную:"
+        echo "    bash $TEMPLATE_DIR/setup/install-dsh-skills.sh --workspace $WORKSPACE_DIR"
+    fi
+fi
+
 # === 5. Install roles (autodiscovery via role.yaml) ===
+# Role install.sh scripts pick their own scheduler: launchd on macOS,
+# systemd --user or cron on Linux (WSL2 included, #454). Issue #1441: this
+# step used to require launchctl, so Linux installs silently got no roles.
+setup_roles_supported() {
+    [ "$(uname -s)" = "Linux" ] || command -v launchctl >/dev/null 2>&1
+}
+
+# The install mode outlives this run: update.sh must not schedule what --core left out (WP-529
+# Ф270, RT5-2 of the rc.5 red team: the first update installed the extractor feeders). Kept in
+# the workspace root, not .iwe-runtime/, which every update rebuilds.
+if $CORE_ONLY; then
+    printf 'core\n' > "$WORKSPACE_DIR/.iwe-install-mode"
+else
+    printf 'full\n' > "$WORKSPACE_DIR/.iwe-install-mode"
+fi
+
 if $CORE_ONLY; then
     echo "[5/6] Автоматизация... пропущена (core mode)"
-elif ! command -v launchctl >/dev/null 2>&1; then
-    echo "[5/6] Автоматизация... пропущена (launchd не найден — не macOS)"
-    echo "  Роли используют launchd (macOS). На Linux используйте cron/systemd вручную."
+elif ! setup_roles_supported; then
+    echo "[5/6] Автоматизация... пропущена: нет ни launchd (macOS), ни Linux"
+    echo "  Роли можно поставить вручную: bash $TEMPLATE_DIR/roles/<роль>/install.sh"
     echo "  См. $TEMPLATE_DIR/roles/ROLE-CONTRACT.md"
 else
     echo "[5/6] Installing roles..."
@@ -1176,8 +1213,15 @@ else
                     chmod +x "$role_dir/install.sh"
                     runner=$(grep '^runner:' "$role_yaml" | sed 's/runner: *//' | tr -d '"' | tr -d "'")
                     [ -n "$runner" ] && chmod +x "$role_dir/$runner" 2>/dev/null || true
-                    bash "$role_dir/install.sh"
-                    echo "  ✓ $role_name installed"
+                    # A host without a scheduler (no systemd user bus, no
+                    # crontab — containers, minimal WSL2) fails one role, not
+                    # the whole setup (#1441).
+                    if bash "$role_dir/install.sh"; then
+                        echo "  ✓ $role_name installed"
+                    else
+                        echo "  ⚠ $role_name не установлена (нет планировщика?) — повторите позже: bash $role_dir/install.sh"
+                        MANUAL_ROLES+=("  - $role_name: bash $role_dir/install.sh")
+                    fi
                 fi
             else
                 echo "  WARN: $role_name/install.sh not found, skipping."

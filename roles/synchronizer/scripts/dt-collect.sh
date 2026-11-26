@@ -31,7 +31,7 @@ portable_date_offset() {
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # issue #875: the workspace comes from the environment, not from a folder name
-# guessed under $HOME - an install outside ~/IWE otherwise reads another
+# guessed under $HOME - an install outside the default folder otherwise reads another
 # workspace's data without a single error.
 WORKSPACE="${IWE_WORKSPACE:-$HOME/IWE}"
 # issue #1106: this fell back to the literal "DS-strategy" directly,
@@ -80,79 +80,53 @@ fi
 # ============================================================
 
 collect_wakatime() {
-    # Since 2026-11-01 the WakaTime API key is write-only: summaries signed
-    # with it answer 403 "API Keys are only for plugins". Reads therefore
-    # prefer the personal OAuth token from ~/.wakatime/oauth_token (Bearer);
-    # the key stays the fallback for self-hosted servers and older accounts.
-    local OAUTH_TOKEN=""
-    if [ -f "$HOME/.wakatime/oauth_token" ]; then
-        OAUTH_TOKEN=$(tr -d '[:space:]' < "$HOME/.wakatime/oauth_token")
-    fi
-    if [ -z "${WAKATIME_API_KEY:-}" ] && [ -z "$OAUTH_TOKEN" ]; then
+    if [ -z "${WAKATIME_API_KEY:-}" ]; then
         log "WAKATIME_API_KEY not set — skipping WakaTime"
         echo "{}"
         return
     fi
 
-    local AUTH_HEADER
-    if [ -n "$OAUTH_TOKEN" ]; then
-        AUTH_HEADER="Authorization: Bearer $OAUTH_TOKEN"
-    else
-        AUTH_HEADER="Authorization: Basic $(echo -n "$WAKATIME_API_KEY" | base64)"
-    fi
-    local API="https://wakatime.com/api/v1/users/current"
+    local ENCODED
+    ENCODED=$(echo -n "$WAKATIME_API_KEY" | base64)
+    local API="https://api.wakatime.com/api/v1/users/current"
 
     # Today
     local TODAY_RESP
-    TODAY_RESP=$(curl -s -H "$AUTH_HEADER" "$API/summaries?start=$DATE&end=$DATE" 2>/dev/null || echo "{}")
+    TODAY_RESP=$(curl -s -H "Authorization: Basic $ENCODED" "$API/summaries?start=$DATE&end=$DATE" 2>/dev/null || echo "{}")
 
     # Last 7 days
     local D7=$(portable_date_offset 7)
     local WEEK_RESP
-    WEEK_RESP=$(curl -s -H "$AUTH_HEADER" "$API/summaries?start=$D7&end=$DATE" 2>/dev/null || echo "{}")
+    WEEK_RESP=$(curl -s -H "Authorization: Basic $ENCODED" "$API/summaries?start=$D7&end=$DATE" 2>/dev/null || echo "{}")
 
     # Last 30 days
     local D30=$(portable_date_offset 30)
     local MONTH_RESP
-    MONTH_RESP=$(curl -s -H "$AUTH_HEADER" "$API/summaries?start=$D30&end=$DATE" 2>/dev/null || echo "{}")
+    MONTH_RESP=$(curl -s -H "Authorization: Basic $ENCODED" "$API/summaries?start=$D30&end=$DATE" 2>/dev/null || echo "{}")
 
-    # Responses go through temp files, not into the `python3 -c` argument:
-    # the 30-day summaries body is ~226 KB and the kernel caps one exec
-    # argument at 128 KB (MAX_ARG_STRLEN), so an inlined payload killed
-    # python3 with "Argument list too long" and this collector silently
-    # returned {} (found 2026-11-11 while fixing the WakaTime auth).
-    local tmpdir
-    tmpdir=$(mktemp -d)
-    printf '%s' "$TODAY_RESP" > "$tmpdir/today.json"
-    printf '%s' "$WEEK_RESP" > "$tmpdir/week.json"
-    printf '%s' "$MONTH_RESP" > "$tmpdir/month.json"
-
-    if ! python3 - "$tmpdir" 2>/dev/null <<'PY'
+    python3 -c "
 import sys, json
-from pathlib import Path
 
-root = Path(sys.argv[1])
-
-def safe_load(name):
+def safe_load(s):
     try:
-        return json.loads((root / name).read_text())
-    except Exception:
+        return json.loads(s)
+    except:
         return {}
 
-today = safe_load('today.json')
-week = safe_load('week.json')
-month = safe_load('month.json')
+today = safe_load('''$TODAY_RESP''')
+week = safe_load('''$WEEK_RESP''')
+month = safe_load('''$MONTH_RESP''')
 
 def total_seconds(resp):
     try:
         return int(resp['cumulative_total']['seconds'])
-    except Exception:
+    except:
         return 0
 
 def active_days(resp):
     try:
         return sum(1 for d in resp.get('data', []) if d.get('grand_total', {}).get('total_seconds', 0) > 0)
-    except Exception:
+    except:
         return 0
 
 def top_items(resp, key, limit=10):
@@ -174,11 +148,7 @@ result = {
     'top_editors': top_items(month, 'editors', 5),
 }
 print(json.dumps(result))
-PY
-    then
-        echo "{}"
-    fi
-    rm -rf "$tmpdir"
+" 2>/dev/null || echo "{}"
 }
 
 # ============================================================
@@ -192,9 +162,16 @@ from datetime import datetime, timedelta
 
 workspace = os.path.expanduser('$WORKSPACE')
 repos = []
+seen_real = set()
 for name in sorted(os.listdir(workspace)):
     path = os.path.join(workspace, name)
+    # A symlink alias (DS-strategy -> DS-strategy on the Mac) is the same repo:
+    # count it once, otherwise commits_7d/30d double (WP-5 F74).
+    real = os.path.realpath(path)
+    if real in seen_real:
+        continue
     if os.path.isdir(os.path.join(path, '.git')):
+        seen_real.add(real)
         repos.append((name, path))
 
 def git_count(path, since):
@@ -273,8 +250,24 @@ print(json.dumps(result))
 # 3. Claude Code Sessions
 # ============================================================
 
+# The log of session opens belongs to session-guard.sh, and the author's guard
+# and the template's guard keep it in different places: ask the guard next to
+# this script (the template layout), then the workspace one (WP-529 F248).
+session_open_log() {
+    local guard
+    for guard in "$SCRIPT_DIR/../../../scripts/session-guard.sh" "$WORKSPACE/scripts/session-guard.sh"; do
+        [ -f "$guard" ] || continue
+        IWE_ROOT="$WORKSPACE" IWE_GOVERNANCE_REPO="$(basename "$GOVERNANCE_DIR")" \
+            bash "$guard" open-log-path 2>/dev/null && return 0
+    done
+    echo "dt-collect: no session-guard.sh answered open-log-path, session opens not counted" >&2
+    return 1
+}
+
 collect_sessions() {
-    local SESSION_LOG="$GOVERNANCE_DIR/inbox/open-sessions.log"
+    # This metric counts opens over time, so read the guard's append-only history.
+    local SESSION_LOG
+    SESSION_LOG=$(session_open_log) || SESSION_LOG=""
 
     python3 -c "
 import json, os, re
@@ -307,9 +300,14 @@ if os.path.exists(log_path):
 import subprocess
 workspace = os.path.expanduser('$WORKSPACE')
 git_sessions_7d = 0
-for name in os.listdir(workspace):
+seen_real = set()
+for name in sorted(os.listdir(workspace)):
     path = os.path.join(workspace, name)
+    real = os.path.realpath(path)  # symlink alias = same repo, count once (WP-5 F74)
+    if real in seen_real:
+        continue
     if os.path.isdir(os.path.join(path, '.git')):
+        seen_real.add(real)
         try:
             out = subprocess.check_output(
                 ['git', '-C', path, 'log', '--since=7 days ago', '--format=%aI', '--no-merges'],

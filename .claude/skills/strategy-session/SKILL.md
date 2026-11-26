@@ -20,7 +20,7 @@ gates_rationale: "операционный скилл; WP Gate применим 
 
 # Strategy Session — диспетчер
 
-> Один skill, три режима. Выбор по факту наличия артефактов в `{{GOVERNANCE_REPO}}/` + календарной позиции сессии.
+> Один skill, три режима. Выбор по факту наличия артефактов в `${IWE_GOVERNANCE_REPO:-DS-strategy}/` + календарной позиции сессии.
 
 ## When to use
 
@@ -40,12 +40,12 @@ gates_rationale: "операционный скилл; WP Gate применим 
 
 ### Шаг 0. Рабочая копия governance-репозитория (БЛОКИРУЮЩЕЕ, ДО расширений и любой записи)
 
-> Если в установке есть `session-guard.sh` (канон под freeze), правка идёт только из изолированной копии и публикуется через `ds-publish.sh` (правило «Канон под freeze» в `{{GOVERNANCE_REPO}}/CLAUDE.md`). Если session-guard в установке нет, заморозка выключена (пустой `IWE_FROZEN_CANONICAL_PATH`) или у репозитория управления нет `origin` (установка без GitHub: `open --isolate` без `--base-sha` берёт основу командой `git fetch origin main`, а публиковать некуда), работай как раньше в найденной рабочей копии и сохраняй штатным способом. Это две явные ветки ниже, не молчаливый пропуск. ВСЕ пути записи строятся от `GOV_WT`, не от канона.
+> Если в установке есть `session-guard.sh` (канон под freeze), правка идёт только из изолированной копии и публикуется через `ds-publish.sh` (правило «Канон под freeze» в `${IWE_GOVERNANCE_REPO:-DS-strategy}/CLAUDE.md`). Если session-guard в установке нет, заморозка выключена (пустой `IWE_FROZEN_CANONICAL_PATH`) или у репозитория управления нет `origin` (установка без GitHub: `open --isolate` без `--base-sha` берёт основу командой `git fetch origin main`, а публиковать некуда), работай как раньше в найденной рабочей копии и сохраняй штатным способом. Это две явные ветки ниже, не молчаливый пропуск. ВСЕ пути записи строятся от `GOV_WT`, не от канона.
 
 ```bash
-CANON="{{WORKSPACE_DIR}}/{{GOVERNANCE_REPO}}"
+CANON="${IWE_WORKSPACE:-$HOME/IWE}/${IWE_GOVERNANCE_REPO:-DS-strategy}"
 GUARD="${IWE_SCRIPTS:-}/session-guard.sh"
-[ -f "$GUARD" ] || GUARD="{{WORKSPACE_DIR}}/scripts/session-guard.sh"
+[ -f "$GUARD" ] || GUARD="${IWE_WORKSPACE:-$HOME/IWE}/scripts/session-guard.sh"
 [ -f "$GUARD" ] || GUARD="$CANON/scripts/session-guard.sh"
 [ -f "$GUARD" ] && GUARD_MODE=required || GUARD_MODE=absent
 CANON_C=$(cd -- "$CANON" 2>/dev/null && pwd -P) || { echo "ERROR: канон $CANON недоступен" >&2; exit 1; }
@@ -116,7 +116,7 @@ fi
   ```bash
   GOV_WT="<записанный абсолютный путь>"; : "${GOV_WT:?}"
   knows_branch() { grep -qE -e '^[[:space:]]*[(]?([^|)#[:space:]]+[[:space:]]*[|][[:space:]]*)*"?--branch(=[^|)[:space:]]*)?"?[[:space:]]*[|)]' "$1" 2>/dev/null; }
-  PUB="$GOV_WT/scripts/ds-publish.sh"; CANON_PUB="{{WORKSPACE_DIR}}/{{GOVERNANCE_REPO}}/scripts/ds-publish.sh"
+  PUB="$GOV_WT/scripts/ds-publish.sh"; CANON_PUB="${IWE_WORKSPACE:-$HOME/IWE}/${IWE_GOVERNANCE_REPO:-DS-strategy}/scripts/ds-publish.sh"
   if ! knows_branch "$PUB" && knows_branch "$CANON_PUB"; then PUB="$CANON_PUB"; fi
   [ -f "$PUB" ] || PUB="$CANON_PUB"
   [ -f "$PUB" ] || { echo "ERROR: публикатор ds-publish.sh не найден ни в копии, ни в каноне. Запусти update.sh (он доставляет публикатор) и повтори публикацию; коммиты остаются в копии $GOV_WT" >&2; exit 1; }
@@ -153,7 +153,7 @@ fi
 ```bash
 GOV_WT="<записанный путь>"; : "${GOV_WT:?}"
 (cd -- "$GOV_WT" || exit 1
-IWE_ROOT="${IWE_ROOT:-${IWE_WORKSPACE:-{{WORKSPACE_DIR}}}}"
+IWE_ROOT="${IWE_ROOT:-${IWE_WORKSPACE:-$HOME/IWE}}"
 case "${IWE_SESSIONS_ROOT:-}" in
   ""|/*) ;;
   *) IWE_SESSIONS_ROOT="$IWE_ROOT/$IWE_SESSIONS_ROOT" ;;
@@ -163,9 +163,9 @@ if [ -n "${IWE_SESSIONS_ROOT:-}" ] && [ ! -d "$IWE_SESSIONS_ROOT" ]; then
   exit 1
 fi
 SESSIONS_DIR=$(
-  GOVERNANCE_REPO="${GOVERNANCE_REPO:-${IWE_GOVERNANCE_REPO:-{{GOVERNANCE_REPO}}}}"
+  GOVERNANCE_REPO="${GOVERNANCE_REPO:-${IWE_GOVERNANCE_REPO:-DS-strategy}}"
   source "${IWE_SCRIPTS:-{{IWE_TEMPLATE}}/scripts}/lib/common.sh" 2>/dev/null \
-    || source "{{WORKSPACE_DIR}}/scripts/lib/common.sh" 2>/dev/null \
+    || source "${IWE_WORKSPACE:-$HOME/IWE}/scripts/lib/common.sh" 2>/dev/null \
     || exit 1
   iwe_sessions_dir "$GOV_WT"
 ) || SESSIONS_DIR="${IWE_SESSIONS_ROOT:-$GOV_WT/sessions}"
@@ -260,7 +260,7 @@ grep -rlE 'strategy-session|Strategy Session|^session_type:[[:space:]]*strategy[
 
 3. **Перед каждым созданием проверь повтор.** Сверь номер из файловой записи этой стратегической сессии и карточку; запись должна связывать выбранный кандидат, путь сохранённого JSON Артефактора и выданный номер. После обрыва до записи номера ищи среди `$GOV_WT/inbox/WP-*/WP-*.md` карточку по `artifactor_result_sha256` исходного JSON и сопоставь название, бюджет, репозиторий и критерий результата. Совпадение только названия либо отсутствие `wp` в JSON не доказывает повтор. Единственное подтверждённое создание — используй его номер и доведи синхронизацию без повторного вызова скрипта. Неоднозначность, историческая строка с номером без карточки или карточка без строки реестра — остановка до создания; предъяви адресный ремонт с сохранением номера. Не выдавай новый номер для маскировки повреждённой регистрации.
 
-4. **Зарегистрируй каждый действительно новый РП через `/wp-new`.** Выполни его шаги с контекстом `GOV_WT` и сохранённым JSON. Не обходи consent/Артефактор-гейты и не заменяй вызов ручной строкой WeekPlan. Номер и фактический путь карточки бери из результата `create-wp.sh` (например, номер `1` и путь `WP-001/WP-001.md`). Сразу запиши соответствие кандидата и номера в существующую файловую запись стратегической сессии, до следующего кандидата. В строке, созданной скриптом в WeekPlan, дополни согласованные источник, режим ТВС, бюджет и критерий результата, добавь ссылку на фактическую карточку; второй строки не создавай. В карточке сохрани источник `R{N}` / `S-НЭП-X` и связь с `H-NNN`, если она есть, вместе с критерием готовности. Связь с целью должна пережить архивирование WeekPlan. `--repo` описывает репозиторий результата; карточка остаётся в governance-репозитории.
+4. **Зарегистрируй каждый действительно новый РП через `/wp-new`.** Выполни его шаги с контекстом `GOV_WT` и сохранённым JSON; в вызов `create-wp.sh` добавь `--weekplan`: утверждение плана и есть слово человека о попадании РП в неделю, поэтому параметр `wp_new_add_to_weekplan: false` здесь не действует (issue #1503). Не обходи consent/Артефактор-гейты и не заменяй вызов ручной строкой WeekPlan. Номер и фактический путь карточки бери из результата `create-wp.sh` (например, номер `1` и путь `WP-001/WP-001.md`). Сразу запиши соответствие кандидата и номера в существующую файловую запись стратегической сессии, до следующего кандидата. В строке, созданной скриптом в WeekPlan, дополни согласованные источник, режим ТВС, бюджет и критерий результата, добавь ссылку на фактическую карточку; второй строки не создавай. В карточке сохрани источник `R{N}` / `S-НЭП-X` и связь с `H-NNN`, если она есть, вместе с критерием готовности. Связь с целью должна пережить архивирование WeekPlan. `--repo` описывает репозиторий результата; карточка остаётся в governance-репозитории.
 
    Если после создания файловая запись сессии недоступна, начни восстановление с фактического пути карточки из сохранившегося вывода `create-wp.sh`. Сверь данные карточки и строки реестра/плана, затем восстанови связь кандидата и номера. Если вывод тоже утрачен, используй поиск из п.3; отсутствие однозначного свидетельства означает остановку, а не новое создание.
 
@@ -270,7 +270,7 @@ grep -rlE 'strategy-session|Strategy Session|^session_type:[[:space:]]*strategy[
 
    ```bash
    : "${GOV_WT:?GOV_WT не задан — задай явно}"
-   bash "$IWE_SCRIPTS/check-wp-registered.sh" "{N}" "$GOV_WT" "$GOV_WT/current/WeekPlan W{W}.md" || { echo "регистрация не согласована" >&2; false; }
+   bash "${IWE_SCRIPTS:-$HOME/IWE/scripts}/check-wp-registered.sh" "{N}" "$GOV_WT" "$GOV_WT/current/WeekPlan W{W}.md" || { echo "регистрация не согласована" >&2; false; }
    ```
 
 6. **Синхронизируй память и подтверди план.** Обнови раздел «РП текущей недели» в `${IWE_ROOT:-$HOME/IWE}/memory/MEMORY.md` по проверенному WeekPlan, включая `pending`; остальную память сохрани. Если файла нет, создай минимальный раздел по правилам установки. Если скрипт `memory-active-wp-update.sh` доступен, его можно использовать только после проверки, что он читает тот же `GOV_WT`: загрузка настроек может вернуть его к канону. Нет маркеров `ACTIVE-WP-START/END`, скрипт пропустил строку или недоступен — синхронизируй раздел вручную и проверь результат. Не утверждай план, если память не удалось записать. Только когда карточки, реестр, WeekPlan, active-wp и MEMORY согласованы для всего принятого списка, поставь `status: confirmed`.

@@ -25,6 +25,10 @@
 #   bypassing the Artifactor result). Mandatory for ANY task class (no
 #   exception for trivial/closed-loop, pilot go-ahead 2026-09-11) --
 #   emergency bypass: --no-artifactor-check.
+# --no-weekplan (issue #1503): do not add the WP row to the WeekPlan «План» table — the
+#   WP lands only in the card and the registry. --weekplan forces the row (a strategy
+#   session approving the WP into the week). Precedence: --no-weekplan / --weekplan >
+#   params.yaml `wp_new_add_to_weekplan: false` > default (row is added); both flags → error.
 # --state (WP-505): target state transition (WP-457 State-Transition Gate).
 #   REQUIRED when <governance>/docs/state-axes-registry.yaml exists (author install);
 #   optional otherwise (typical user install — gate inactive per template contract).
@@ -73,6 +77,14 @@ SKIP_CONSENT=0
 ARTIFACTOR_RESULT_FILE=""
 PILOT_REVISION=""
 SKIP_ARTIFACTOR=0
+PRODUCER=""
+REGISTRY_WAIVER=""
+NAME_KIND=""
+NAME_KIND_ANSWER=""
+NAME_KIND_UNSURE=0
+NAME_KIND_PILOT=""
+NO_WEEKPLAN_FLAG=0
+WEEKPLAN_FLAG=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -91,9 +103,31 @@ while [[ $# -gt 0 ]]; do
     --artifactor-result) ARTIFACTOR_RESULT_FILE="$2"; shift 2 ;;
     --pilot-revision) PILOT_REVISION="$2"; shift 2 ;;
     --no-artifactor-check) SKIP_ARTIFACTOR=1; shift ;;
+    --producer) PRODUCER="$2"; shift 2 ;;
+    --registry-waiver) REGISTRY_WAIVER="$2"; shift 2 ;;
+    --name-kind) NAME_KIND="$2"; shift 2 ;;
+    --name-kind-answer) NAME_KIND_ANSWER="$2"; shift 2 ;;
+    --name-kind-unsure) NAME_KIND_UNSURE=1; shift ;;
+    --name-kind-pilot) NAME_KIND_PILOT="$2"; shift 2 ;;
+    --no-weekplan) NO_WEEKPLAN_FLAG=1; shift ;;
+    --weekplan) WEEKPLAN_FLAG=1; shift ;;
     *) echo "Неизвестный флаг: $1" >&2; exit 1 ;;
   esac
 done
+
+# --- WeekPlan row: on unless the pilot turned it off (issue #1503) ---
+if [[ "$NO_WEEKPLAN_FLAG" == 1 && "$WEEKPLAN_FLAG" == 1 ]]; then
+  echo "ERROR: --weekplan и --no-weekplan взаимоисключающие" >&2
+  exit 1
+fi
+# Empty reason = the row is added.
+WEEKPLAN_OFF_REASON=""
+if [[ "$NO_WEEKPLAN_FLAG" == 1 ]]; then
+  WEEKPLAN_OFF_REASON="--no-weekplan"
+elif [[ "$WEEKPLAN_FLAG" == 0 && -f "$IWE/params.yaml" ]] \
+  && grep -qE '^wp_new_add_to_weekplan:[[:space:]]*false([[:space:]]*(#.*)?)?$' "$IWE/params.yaml"; then
+  WEEKPLAN_OFF_REASON="params.yaml wp_new_add_to_weekplan: false"
+fi
 
 # --- Artefactor Gate (WP-7 Phase 142, 2026-09-11) ---
 # Title must come from the Artifactor result, not be invented by the agent
@@ -315,6 +349,93 @@ yaml_dq_escape() {  # yaml_dq_escape <string>
   s="${s//$'\n'/\\n}"
   printf '%s' "$s"
 }
+
+# --- Registry Gate (WP-575 Ф5, решение пилота 27.10) ---
+# Три исхода. Реестр знает слово и род противоречит типу результата — отказ.
+# Слова нет или оно неоднозначно — решает ИИ по проверочному вопросу рода
+# (--name-kind, --name-kind-answer); неуверен (--name-kind-unsure) или реестр
+# называет слово неоднозначным — РП создаётся только с решением пилота
+# (--name-kind-pilot, дословно). Обход всего замка — --registry-waiver "причина",
+# только по слову пилота. Источник решения и причины пишутся в карточку.
+REGISTRY_FM=""
+# Without the Pack there is nothing to check against: the name is not looked up at all.
+# artifactor.py would also refuse a result without result_type before it notices the missing Pack,
+# which must never stop an ordinary install (issue #1606; regression test in the artifactor gate test).
+REG_PACK_PRESENT=1
+if [[ -z "${CONCEPT_KINDS_REGISTRY:-}" && ! -d "$IWE/PACK-digital-platform" ]]; then
+  REG_PACK_PRESENT=0
+fi
+if [[ -n "$ARTIFACTOR_RESULT_FILE" && "$REG_PACK_PRESENT" -eq 1 ]]; then
+  _scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  _reg_args=(--check-registry "$ARTIFACTOR_RESULT_FILE" --title "$TITLE")
+  [[ -n "$NAME_KIND" ]] && _reg_args+=(--ai-kind "$NAME_KIND")
+  [[ -n "$NAME_KIND_ANSWER" ]] && _reg_args+=(--ai-answer "$NAME_KIND_ANSWER")
+  [[ "$NAME_KIND_UNSURE" -eq 1 ]] && _reg_args+=(--ai-unsure)
+  [[ -n "$NAME_KIND_PILOT" ]] && _reg_args+=(--pilot-decision "$NAME_KIND_PILOT")
+  if REG_PY=$(bash "$_scripts_dir/lib/find-python3.sh" 2>/dev/null); then
+    # Только stdout: предупреждения утилиты поиска рода идут в stderr и не должны
+    # попасть в карточку вместо источника проверки.
+    REG_OUT=$(PYTHONDONTWRITEBYTECODE=1 "$REG_PY" "$_scripts_dir/artifactor.py" "${_reg_args[@]}" 2>/dev/null)
+    REG_RC=$?
+    if [[ "$REG_OUT" != REGISTRY_* ]]; then
+      REG_OUT="REGISTRY_BLOCK проверка реестра завершилась сбоем (код $REG_RC)"
+      REG_RC=4
+    fi
+  else
+    REG_OUT="REGISTRY_BLOCK нет Python с PyYAML для чтения реестра понятий"
+    REG_RC=4
+  fi
+  if [[ "$REG_RC" -eq 0 ]]; then
+    REG_DETAIL="${REG_OUT#REGISTRY_OK }"
+    if [[ "$REG_DETAIL" == *" ⚠ "* ]]; then
+      echo "💡 ${REG_DETAIL#* ⚠ }" >&2
+    fi
+    REGISTRY_FM="registry_check: \"${REG_DETAIL%% *}\"
+registry_check_detail: \"$(yaml_dq_escape "${REG_DETAIL#* }")\""
+  elif [[ -n "${REGISTRY_WAIVER//[[:space:]]/}" ]]; then
+    echo "⚠️  Registry Gate обойдён по слову пилота: ${REG_OUT#REGISTRY_* }" >&2
+    REGISTRY_FM="registry_check: \"waived\"
+registry_check_detail: \"$(yaml_dq_escape "${REG_OUT#REGISTRY_* }")\"
+registry_waiver_reason: \"$(yaml_dq_escape "$REGISTRY_WAIVER")\""
+  elif [[ "$REG_RC" -eq 5 ]]; then
+    echo "🟡 Registry Gate: нужно решение пилота по роду слова в названии РП." >&2
+    echo "   ${REG_OUT#REGISTRY_ASK }" >&2
+    echo "   Спроси пилота и повтори с --name-kind-pilot \"его решение дословно\"." >&2
+    exit 1
+  else
+    echo "🚫 Registry Gate: название РП не прошло сверку с Реестром понятий и родов." >&2
+    echo "   ${REG_OUT#REGISTRY_BLOCK }" >&2
+    echo "   Слова нет в реестре: ответь на проверочный вопрос рода и передай --name-kind <род> --name-kind-answer \"ответ\"" >&2
+    echo "   (при сомнении добавь --name-kind-unsure — решит пилот). Род слова противоречит типу результата:" >&2
+    echo "   переназови результат или, только по слову пилота, --registry-waiver \"причина\"." >&2
+    exit 1
+  fi
+  # Рекомендация, не блокировка: документ создаёт система (WP-575 Ф5, просьба пилота 27.10).
+  if [[ -n "${REG_PY:-}" ]]; then
+    _advice_args=(--advice "$ARTIFACTOR_RESULT_FILE")
+    [[ -n "$PRODUCER" ]] && _advice_args+=(--producer "$PRODUCER")
+    PRODUCER_ADVICE=$(PYTHONDONTWRITEBYTECODE=1 "$REG_PY" "$_scripts_dir/artifactor.py" "${_advice_args[@]}" 2>/dev/null)
+    [[ -n "$PRODUCER_ADVICE" ]] && echo "💡 $PRODUCER_ADVICE" >&2
+  fi
+  if [[ -n "$PRODUCER" ]]; then
+    REGISTRY_FM="${REGISTRY_FM}
+producer: \"$(yaml_dq_escape "$PRODUCER")\""
+  elif [[ -n "${PRODUCER_ADVICE:-}" ]]; then
+    REGISTRY_FM="${REGISTRY_FM}
+producer: \"не указан\""
+  fi
+elif [[ -n "$ARTIFACTOR_RESULT_FILE" ]]; then
+  REGISTRY_FM="registry_check: \"no-pack\"
+registry_check_detail: \"PACK-digital-platform не установлен, название с реестром понятий не сверялось\""
+  if [[ -n "$PRODUCER" ]]; then
+    REGISTRY_FM="${REGISTRY_FM}
+producer: \"$(yaml_dq_escape "$PRODUCER")\""
+  fi
+elif [[ "$SKIP_ARTIFACTOR" -eq 1 ]]; then
+  REGISTRY_FM="registry_check: \"skipped\"
+registry_check_detail: \"создано с --no-artifactor-check, название реестром не проверялось\""
+fi
+
 
 # Registry cell «Ставка»: Russian axis names + hypothesis id (WP-505).
 axis_ru() {
@@ -560,6 +681,10 @@ if [[ -n "$PILOT_REVISION" ]]; then
   FM_STAKE="${FM_STAKE}
 pilot_revision: \"$(yaml_dq_escape "$PILOT_REVISION")\""
 fi
+if [[ -n "$REGISTRY_FM" ]]; then
+  FM_STAKE="${FM_STAKE}
+${REGISTRY_FM}"
+fi
 
 if ! cat > "$WP_FILE" <<WPEOF
 ---
@@ -760,7 +885,9 @@ echo "3/5 WeekPlan..."
 
 # WEEKPLAN was already found above (snapshot for rollback, issue WP-507 about the file name format
 # applied there too) — the same path is used here, no repeated search.
-if [[ -n "$WEEKPLAN" ]]; then
+if [[ -n "$WEEKPLAN_OFF_REASON" ]]; then
+  echo "   ⏭️  WeekPlan: строка не добавляется ($WEEKPLAN_OFF_REASON)"
+elif [[ -n "$WEEKPLAN" ]]; then
   if ! python3 - "$WEEKPLAN" "$WP_NUM" "$TITLE" "$PRIORITY" "$BUDGET" "$REPO" "$STAKE_CELL" <<'PYEOF'
 import sys, re
 weekplan_path, wp_num, title, priority, budget = sys.argv[1:6]

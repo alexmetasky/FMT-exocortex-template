@@ -3,18 +3,23 @@
 
 Usage: wakatime-day-total.py YYYY-MM-DD
 
-Reads the summaries endpoint, not `wakatime-cli --today`: the CLI reads the
-statusbar endpoint, which omits the AI Coding category (issue #859), returns
-an empty line with exit 0 on some installs (issue #1414), and can only answer
-for the current day, so a Day Close after midnight got the wrong day
-(issue #1398).
+Reads the summaries endpoint, not `wakatime-cli --today`: the CLI returns an
+empty line with exit 0 on some installs (issue #1414) and can only answer for
+the current day, so a Day Close after midnight got the wrong day (issue #1398).
 
-Auth: a personal OAuth token from ~/.wakatime/oauth_token wins when present,
-otherwise the API key from WAKATIME_API_KEY / env files / ~/.wakatime.cfg.
-Since 2026-11-01 WakaTime API keys are write-only — sending them to summaries
-answers 403 "API Keys are only for plugins", so the key path only still works
-for self-hosted servers and pre-cutoff accounts. The key itself stays valid
-for the heartbeat (write) path and is not touched here.
+Authentication (issue #1451): WakaTime may reject a plugin API key on the
+summaries endpoint with HTTP 403 ("API Keys are only for plugins, use your
+personal oauth token"). Therefore:
+- WAKATIME_OAUTH_TOKEN set -> summaries with a Bearer token, any date.
+- Otherwise summaries with the plugin key (Basic auth). On HTTP 403 for the
+  current local day only, falls back to `status_bar/today` with the same key
+  and accepts its answer only if its date equals the requested date (the date
+  is in the WakaTime account timezone). Past days without an OAuth token
+  return no value.
+Issue #859 reported that the statusbar total omitted the AI Coding category;
+the #1451 reporter observed on 2026-11-03 that `status_bar/today` grand_total
+did include AI Coding time. Treat the fallback as best effort for that
+category.
 
 Exit 0: stdout is the total seconds (integer, > 0).
 Exit 3: no value; stdout is a short reason in parentheses for the caller to
@@ -27,11 +32,11 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.request
 from datetime import date
 
 ENV_FILES = ("~/.config/aist/env", "~/.iwe/.exocortex.env", "~/.wakatime.env")
-OAUTH_TOKEN_FILE = "~/.wakatime/oauth_token"
 KEY_LINE = re.compile(
     r"^(?:export\s+)?WAKATIME_API_KEY\s*=\s*([\"']?)([^\"'\n]+)\1\s*$"
 )
@@ -40,19 +45,6 @@ KEY_LINE = re.compile(
 def no_value(reason):
     print(f"({reason})")
     sys.exit(3)
-
-
-def find_oauth_token():
-    """Personal OAuth token for reads (Bearer), created at wakatime.com/oauth."""
-    path = os.path.expanduser(OAUTH_TOKEN_FILE)
-    try:
-        with open(path, encoding="utf-8") as f:
-            return f.read().strip() or None
-    except FileNotFoundError:
-        return None
-    except (OSError, UnicodeError) as exc:
-        print(f"wakatime-day-total: cannot read {path}: {exc}", file=sys.stderr)
-        return None
 
 
 def key_from_env_file(path):
@@ -107,6 +99,87 @@ def day_seconds(body, target):
     return seconds
 
 
+API_BASE = "https://api.wakatime.com/api/v1/users/current"
+NEON_HINT = "use Neon fallback: domain_event coding_time"
+
+
+def fetch_json(url, authorization):
+    """GET url and decode JSON. Raises urllib.error.HTTPError, OSError, ValueError."""
+    req = urllib.request.Request(
+        url, headers={"Authorization": authorization, "Accept": "application/json"}
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def status_bar_seconds(body, target):
+    """Seconds from a status_bar/today body, or a reason string on mismatch."""
+    data = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(data, dict):
+        return None, "WakaTime status_bar: no data"
+    day_range = data.get("range")
+    day = day_range.get("date") if isinstance(day_range, dict) else None
+    total = data.get("grand_total")
+    seconds = total.get("total_seconds") if isinstance(total, dict) else None
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+        return None, f"no WakaTime status_bar total for {target}"
+    if seconds == 0 and day in (None, ""):
+        return 0, None
+    if day != target:
+        return None, (
+            f"WakaTime status_bar answers for {day}, not {target} "
+            "(account timezone differs?)"
+        )
+    return round(seconds), None
+
+
+def summaries_url(target):
+    return f"{API_BASE}/summaries?start={target}&end={target}"
+
+
+def basic_auth(api_key):
+    return "Basic " + base64.b64encode(f"{api_key}:".encode()).decode()
+
+
+def from_oauth(token, target):
+    try:
+        body = fetch_json(summaries_url(target), f"Bearer {token}")
+    # OSError covers HTTPError, URLError and socket timeouts on every Python 3
+    # version; ValueError covers JSONDecodeError and UnicodeDecodeError.
+    # The token is only in the request header and never in exc's text.
+    except (OSError, ValueError) as exc:
+        no_value(f"WakaTime API error (OAuth token): {exc} — {NEON_HINT}")
+    return day_seconds(body, target)
+
+
+def from_plugin_key(api_key, target):
+    try:
+        body = fetch_json(summaries_url(target), basic_auth(api_key))
+    except urllib.error.HTTPError as exc:
+        if exc.code != 403:
+            no_value(f"WakaTime API error: {exc} — {NEON_HINT}")
+        if target != date.today().isoformat():
+            no_value(
+                "WakaTime summaries rejected the plugin API key (HTTP 403); "
+                "past days need WAKATIME_OAUTH_TOKEN — " + NEON_HINT
+            )
+        return from_status_bar(api_key, target)
+    except (OSError, ValueError) as exc:
+        no_value(f"WakaTime API error: {exc} — {NEON_HINT}")
+    return day_seconds(body, target)
+
+
+def from_status_bar(api_key, target):
+    try:
+        body = fetch_json(f"{API_BASE}/status_bar/today", basic_auth(api_key))
+    except (OSError, ValueError) as exc:
+        no_value(f"WakaTime status_bar error: {exc} — {NEON_HINT}")
+    seconds, reason = status_bar_seconds(body, target)
+    if reason:
+        no_value(reason)
+    return seconds
+
+
 def main():
     if len(sys.argv) != 2:
         print(__doc__.strip().splitlines()[2], file=sys.stderr)
@@ -118,34 +191,15 @@ def main():
         print(f"wakatime-day-total: not a YYYY-MM-DD date: {target!r}", file=sys.stderr)
         sys.exit(2)
 
-    oauth_token = find_oauth_token()
-    api_key = None if oauth_token else find_api_key()
-    if not oauth_token and not api_key:
-        no_value(
-            "no WakaTime credentials (~/.wakatime/oauth_token or WAKATIME_API_KEY)"
-            " — use Neon fallback: domain_event coding_time"
-        )
-    url = f"https://wakatime.com/api/v1/users/current/summaries?start={target}&end={target}"
+    oauth_token = os.environ.get("WAKATIME_OAUTH_TOKEN", "").strip()
     if oauth_token:
-        headers = {
-            "Authorization": f"Bearer {oauth_token}",
-            "Accept": "application/json",
-        }
+        seconds = from_oauth(oauth_token, target)
     else:
-        auth = base64.b64encode(f"{api_key}:".encode()).decode()
-        headers = {"Authorization": f"Basic {auth}", "Accept": "application/json"}
-    req = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-    # OSError covers URLError and socket timeouts on every Python 3 version;
-    # ValueError covers JSONDecodeError and UnicodeDecodeError.
-    except (OSError, ValueError) as exc:
-        no_value(
-            f"WakaTime API error: {exc} — use Neon fallback: domain_event coding_time"
-        )
+        api_key = find_api_key()
+        if not api_key:
+            no_value(f"WAKATIME_API_KEY not found — {NEON_HINT}")
+        seconds = from_plugin_key(api_key, target)
 
-    seconds = day_seconds(body, target)
     if seconds is None:
         no_value(f"no WakaTime entry for {target}")
     if seconds <= 0:

@@ -1,6 +1,6 @@
 ---
 name: audit-installation
-description: Аудит пользовательской инсталляции IWE. Запускает scripts/iwe-audit.sh + MCP healthcheck + smoke-test ритуала через sentinel-механику (контракт dry-run-contract.md), передаёт отчёт subagent'у в роли VR.R.002 Аудитор (context isolation) → verdict ✅/⚠️/❌ по 6 компонентам (Inventory, L1 drift, {{GOVERNANCE_REPO}}, L3 customizations, MCP, ритуал). Используй после restore из бэкапа, после update.sh, или при еженедельной сверке.
+description: Аудит пользовательской инсталляции IWE. Запускает scripts/iwe-audit.sh + MCP healthcheck + smoke-test ритуала через sentinel-механику (контракт dry-run-contract.md), передаёт отчёт subagent'у в роли VR.R.002 Аудитор (context isolation) → verdict ✅/⚠️/❌ по 6 компонентам (Inventory, L1 drift, репозиторий стратегии, L3 customizations, MCP, ритуал). Используй после restore из бэкапа, после update.sh, или при еженедельной сверке.
 argument-hint: "[--skip-mcp] [--critical]"
 version: 1.0.0
 layer: L1
@@ -29,14 +29,14 @@ gates_rationale: "операционный скилл; WP Gate применим 
 
 ## When to use
 
-Аудит пользовательской инсталляции IWE. Запускает scripts/iwe-audit.sh + MCP healthcheck + smoke-test ритуала через sentinel-механику (контракт dry-run-contract.md), передаёт отчёт subagent'у в роли VR.R.002 Аудитор (context isolation) → verdict ✅/⚠️/❌ по 6 компонентам (Inventory, L1 drift, {{GOVERNANCE_REPO}}, L3 customizations, MCP, ритуал). Используй после restore из бэкапа, после update.sh, или при еженедельной сверке.
+Аудит пользовательской инсталляции IWE. Запускает scripts/iwe-audit.sh + MCP healthcheck + smoke-test ритуала через sentinel-механику (контракт dry-run-contract.md), передаёт отчёт subagent'у в роли VR.R.002 Аудитор (context isolation) → verdict ✅/⚠️/❌ по 6 компонентам (Inventory, L1 drift, репозиторий стратегии, L3 customizations, MCP, ритуал). Используй после restore из бэкапа, после update.sh, или при еженедельной сверке.
 
 ## Обещание
 
 За ≤5 минут — markdown-отчёт ✅/⚠️/❌ по 6 компонентам инсталляции:
 1. **Inventory** — все ли критичные L1-файлы (CLAUDE.md, скиллы, протоколы) на месте
 2. **L1 drift** — расхождения с FMT-exocortex-template
-3. **{{GOVERNANCE_REPO}}** — git status + diff с FMT-strategy-template
+3. **Репозиторий стратегии** — git status + diff с FMT-strategy-template
 4. **L3 customizations** — extensions/, отличия params.yaml от skeleton, AUTHOR-ONLY зоны
 5. **MCP healthcheck** — 4 tools отвечают (с уважением к подписочному гейтингу DP.SC.112)
 6. **Ритуал smoke-test** — `/run-protocol close day` запускается под sentinel-защитой, доходит до write-шагов (см. `memory/dry-run-contract.md`)
@@ -82,22 +82,23 @@ bash "$AUDIT_SCRIPT" $([ "${ARGUMENTS:-}" = "--critical" ] && echo "--critical")
 - 1 → warnings (отметить, продолжать)
 - 2 → critical gaps в bash-проверках (отметить, продолжать — Аудитор оценит совокупно с MCP)
 
-Скрипт покрывает разделы 1-3 отчёта (Inventory, L1 drift, {{GOVERNANCE_REPO}}).
+Скрипт покрывает разделы 1-3 отчёта (Inventory, L1 drift, репозиторий стратегии).
 
 ## Шаг 2. MCP healthcheck (если не `--skip-mcp`)
 
-Параллельно вызвать 4 MCP tool'а с минимальной нагрузкой, замерить латентность:
+Параллельно вызвать 5 MCP tool'ов с минимальной нагрузкой, замерить латентность. Имена даны без префикса: полное имя инструмента зависит от того, как назван коннектор MCP в этой установке (например `mcp__claude_ai_IWE__…` или `mcp__claude_ai_Aisystant_MCP__…`) — взять тот префикс, под которым инструменты реально видны (issue #1440).
 
 | Tool | Параметры | Уровень | Что считаем |
 |------|-----------|---------|-------------|
-| `mcp__claude_ai_IWE__knowledge_search` | `query: "test"`, `limit: 1` | бесплатный | ✅ если ответ <15s |
-| `mcp__claude_ai_IWE__github_status` | (без параметров) | бесплатный | ✅ если ответ |
-| `mcp__claude_ai_IWE__personal_search` | `query: "ping"`, `limit: 1` | **подписочный** | ✅ если ответ; **403/subscription_required → ⏸️** (не считать failure) |
-| `mcp__claude_ai_IWE__dt_read_digital_twin` | `path: "/"` | **подписочный** | ✅ если ответ; **403/subscription_required → ⏸️** (не считать failure) |
+| `knowledge_search` | `query: "test"`, `limit: 1` | бесплатный | ✅ если ответ <15s |
+| `knowledge_list_sources` | (без параметров) | бесплатный | ✅ если ответ |
+| `github_status` | (без параметров) | **подписочный** | ✅ если ответ; **отказ подписки → ⏸️** (не считать failure) |
+| `personal_search` | `query: "ping"`, `limit: 1` | **подписочный** | ✅ если ответ; **403/subscription_required → ⏸️** (не считать failure) |
+| `dt_read_digital_twin` | `path: "/"` | **подписочный** | ✅ если ответ; **403/subscription_required → ⏸️** (не считать failure) |
 
 Двойник проверяется по корню `/`, а не по разделу: незаполненная категория метамодели (например `1_declarative`) отвечает `Path not found`, и исправная установка получала ложный ❌ (#932).
 
-**Подписочное гейтование (DP.SC.112).** `personal_*` и `dt_*` требуют активной БР в `subscription_grants`. Без подписки — это **не сбой инсталляции**, а ожидаемый отказ. Помечать как ⏸️ subscription_required, не ❌. Coverage считать только по доступным для пользователя tool'ам.
+**Подписочное гейтование (DP.SC.112).** `personal_*`, `dt_*` и `github_status` требуют активной БР в `subscription_grants`; бесплатно доступны только `knowledge_search`, `knowledge_get_document`, `knowledge_list_sources`. Отказ приходит либо кодом 403/subscription_required, либо текстом «требуется активная подписка» — оба случая одинаково ⏸️. Без подписки — это **не сбой инсталляции**, а ожидаемый отказ. Помечать как ⏸️ subscription_required, не ❌. Coverage считать только по доступным для пользователя tool'ам.
 
 Сформировать markdown-секцию `## 4. MCP healthcheck`:
 
@@ -110,10 +111,11 @@ bash "$AUDIT_SCRIPT" $([ "${ARGUMENTS:-}" = "--critical" ] && echo "--critical")
 |------|--------|-------------|------------|
 | personal_search | ✅/❌ | Nms | ... |
 | knowledge_search | ✅/❌ | Nms | ... |
-| github_status | ✅/❌ | Nms | ... |
+| knowledge_list_sources | ✅/❌ | Nms | ... |
+| github_status | ✅/❌/⏸️ | Nms | ... |
 | dt_read_digital_twin | ✅/❌ | Nms | ... |
 
-Coverage: N/4
+Coverage: N/5
 ```
 
 Если `--skip-mcp` → секция «⏸️ MCP healthcheck — пропущен по флагу».
@@ -126,10 +128,11 @@ Coverage: N/4
 
 1. **Создать репетицию через begin-helper** (issue #549 stage 2 — эксклюзивное создание под транзакционным замком; token печатается один раз в stdout):
    ```bash
-   bash "$IWE_SCRIPTS/dry-run-begin.sh" audit-installation "${CLAUDE_SESSION_ID:-}"
+   IWE_PATHS="${IWE_PATHS_FILE:-}"; if [ -z "$IWE_PATHS" ]; then for _c in "$PWD/.iwe-paths" "${IWE_WORKSPACE:-$HOME/IWE}/.iwe-paths" "$HOME/.iwe-paths"; do [ -r "$_c" ] && { IWE_PATHS="$_c"; break; }; done; fi; [ -n "$IWE_PATHS" ] && . "$IWE_PATHS"; bash "$IWE_SCRIPTS/dry-run-begin.sh" audit-installation "${CLAUDE_SESSION_ID:-}" hold
    ```
-   Helper печатает `gate_id=`, `owner_token=`, `owner_session_id=`. **Запомни все три значения из вывода tool-call'а** — shell-переменные между твоими Bash-вызовами не живут (Codex r2), а token хранить в файле нельзя (его прочитает репетиция). Активная чужая репетиция → helper завершится ошибкой с её gate_id.
-2. **Запустить subagent** через Agent tool (subagent_type=general-purpose, модель Sonnet) с промптом:
+   `$IWE_SCRIPTS` в неинтерактивном вызове не задана (#688), поэтому команда сначала подключает `.iwe-paths` стандартной цепочкой — той же, что в `/day-close`; под активной репетицией гейт пропускает именно эту форму, а `. <произвольный путь>` блокирует (issue #1439). Цепочку не сокращать и не менять.
+   Третий аргумент `hold` (issue #1435): Stop-хук не завершит репетицию, даже если подагент уйдёт в фон и ход закончится раньше него — завершает только шаг 4; ограничитель — TTL флага. Helper печатает `gate_id=`, `owner_token=`, `owner_session_id=`. **Запомни все три значения из вывода tool-call'а** — shell-переменные между твоими Bash-вызовами не живут (Codex r2), а token хранить в файле нельзя (его прочитает репетиция). Активная чужая репетиция → helper завершится ошибкой с её gate_id.
+2. **Запустить subagent** через Agent tool (subagent_type=general-purpose, модель Sonnet) в переднем плане — не фоновым запуском, — с промптом:
 
    ```
    Запусти ритуал /run-protocol close day по обычной процедуре. Не изобретай — следуй SKILL.md как написано.
@@ -146,10 +149,10 @@ Coverage: N/4
    - Заключение: ✅/⚠️/❌
    ```
 
-3. **Дождаться завершения subagent'а.**
+3. **Дождаться завершения subagent'а.** Если среда всё же запустила его в фоне и сразу вернула управление — не заканчивать ход финальным текстом и не переходить к шагу 4, пока не пришло уведомление о его завершении (issue #1435).
 4. **Завершить репетицию** (атомарный переход active→completed с capability token; sentinel снимается самим helper'ом после completed — Stop-хук теперь только идемпотентный fallback). Подставь значения, запомненные на шаге 1:
    ```bash
-   bash "$IWE_SCRIPTS/dry-run-complete.sh" "<gate_id из шага 1>" rehearsal-finished "<owner_session_id из шага 1>" "<owner_token из шага 1>"
+   IWE_PATHS="${IWE_PATHS_FILE:-}"; if [ -z "$IWE_PATHS" ]; then for _c in "$PWD/.iwe-paths" "${IWE_WORKSPACE:-$HOME/IWE}/.iwe-paths" "$HOME/.iwe-paths"; do [ -r "$_c" ] && { IWE_PATHS="$_c"; break; }; done; fi; [ -n "$IWE_PATHS" ] && . "$IWE_PATHS"; bash "$IWE_SCRIPTS/dry-run-complete.sh" "<gate_id из шага 1>" rehearsal-finished "<owner_session_id из шага 1>" "<owner_token из шага 1>"
    ```
 5. **Сформировать секцию 6 отчёта:**
    ```markdown
@@ -196,7 +199,7 @@ Coverage: N/4
 Ты исполняешь роль VR.R.002 Аудитор (PACK-verification). Твоя задача — прочитать markdown-отчёт по аудиту инсталляции IWE и вынести verdict.
 
 Эталон:
-- VR.SC.005 (Service Clause): инсталляция должна иметь все критические L1-файлы, ритуалы должны загружаться, MCP должен отвечать, {{GOVERNANCE_REPO}} — быть git-репо.
+- VR.SC.005 (Service Clause): инсталляция должна иметь все критические L1-файлы, ритуалы должны загружаться, MCP должен отвечать, репозиторий стратегии — быть git-репо.
 - Gate-критерии (из WP-265 §Gate-критерии):
   - ✅ — 0 critical gaps, ≤2 warnings
   - ⚠️ — 1+ warning или ≥3 minor gaps; работоспособно
@@ -215,7 +218,7 @@ Coverage: N/4
 - L1 (платформа): ✅/⚠️/❌ — короткое объяснение
 - Ритуалы: ✅/⚠️/❌ — ...
 - MCP: ✅/⚠️/❌ — ...
-- {{GOVERNANCE_REPO}}: ✅/⚠️/❌ — ...
+- репозиторий стратегии: ✅/⚠️/❌ — ...
 
 **Критичные gaps (если есть):**
 - [список с указанием файла/компонента]
@@ -252,7 +255,7 @@ Coverage: N/4
 ## Ограничения текущей реализации
 
 - **Smoke-test покрывает один ритуал** (`/run-protocol close day`). Расширение на week-close / month-close — мини-РП, копия шага 2.5 с другими subcommand'ами.
-- **{{GOVERNANCE_REPO}} diff** — работает только если существует `FMT-strategy-template/` (или `templates/strategy-skeleton/`). Если нет — секция пометится «N/A».
+- **Diff репозитория стратегии** — работает только если существует `FMT-strategy-template/` (или `templates/strategy-skeleton/`). Если нет — секция пометится «N/A».
 - **MCP healthcheck** — зависит от текущих доступных tools. Если набор изменится, обновить шаг 2.
 - **Sentinel sticky-state** — защита: TTL 10 мин в хуке + Stop-cleanup. Edge case: если хук изменён и не читает sentinel → блокировки не будет (fail-open). Защита: периодический re-test `/audit-installation` ловит регрессию.
 

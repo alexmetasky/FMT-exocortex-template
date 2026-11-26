@@ -8,12 +8,15 @@
 # Commands:
 #   open --wp WP-N [--task "..."] [--files "a,b"] [--slug "..."] [--agent claude-code|kimi|hermes|grok] [--personality <unassigned|UUID>] [--isolate]
 #   open --housekeeping <reason> [--agent ...]        # background housekeeping session without ORZ
+#   open-log-path                                      # print the session-open log path (for readers such as dt-collect.sh)
 #   close [--wp WP-N] [--slug "..."] [--agent ...]
 #   close ... --force-no-reflection "<reason>"       # close without answering the reflection —
 #                                                      # only if the runner is stopped exactly on
 #                                                      # blocked-witness-unavailable AND the push is already
 #                                                      # confirmed (all_pushed: true)
 #   close --housekeeping <reason> [--agent ...]       # close a housekeeping session
+#   close --housekeeping <reason> --only-own-harness  # close it only if this conversation
+#                                                      # (CLAUDE_CODE_SESSION_ID) opened it; else exit 3
 #   audit [--since YYYY-MM-DD] [--cleanup-orphans]
 #   renew [--wp WP-N] [--slug "..."] [--agent ...]    # extend the right to commit
 #   heartbeat --agent <agent> --session-id <id> --owner-pid <pid>
@@ -42,6 +45,23 @@
 #   6 — scope gate block (staged file outside active sessions)
 
 set -euo pipefail
+
+# WP-530 F160: locale- and time-zone-independent owner identity, written as an
+# extra `pid_start_id:` line next to every existing `pid:` line this file
+# writes (scripts/lib/process-identity.sh). Optional and additive only: a
+# template install without the library keeps writing semaphores exactly as
+# before (no pid_start_id line) — this never changes which pid is treated as
+# the owner. Defined here, before the Git Bash degraded path below (_gb_main,
+# reached directly from the MINGW/MSYS branch further down) and before the
+# isolate helpers, because both call it and bash resolves a function call at
+# the time it runs, not at file-parse time (session-guard-top-level-flow
+# lesson: a function defined further down in the file is "command not found"
+# on whichever path reaches its call site first).
+_SG_PROCESS_IDENTITY_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/process-identity.sh"
+_owner_pid_start_id() {  # <pid>
+  [ -r "$_SG_PROCESS_IDENTITY_LIB" ] || return 0
+  ( . "$_SG_PROCESS_IDENTITY_LIB" && process_identity "$1" ) 2>/dev/null || true
+}
 
 # The transition lock below uses Unix fcntl, directory fsync through Python and
 # /bin/bash re-exec. Git Bash with native Windows Python cannot uphold that
@@ -91,8 +111,25 @@ _gb_semaphore_trusted() { # <path> <agent> <session id>
   [ "$(grep -c '^session_id: ' "$1")" = 1 ] && [ "$(grep '^session_id: ' "$1")" = "session_id: $3" ] || return 1
 }
 
+# Issue #1419, degraded counterpart of _archive_previous_terminal: move an
+# earlier run's .closed/.stale to a unique name. Weaker than the full version
+# (no inode/mode check, no directory fsync): mv -n refuses to overwrite, and a
+# source still present afterwards means the name was taken — refuse.
+_gb_archive_previous() { # <terminal path> <its .open path>
+  local terminal="$1" open="$2" archive
+  [ -e "$terminal" ] || [ -L "$terminal" ] || return 0
+  [ -f "$terminal" ] && [ ! -L "$terminal" ] && [ -O "$terminal" ] \
+    || { echo "session-guard: прошлый '$terminal' не прошёл проверку; оставлен на месте" >&2; return 1; }
+  [ -e "$open" ] && [ "$terminal" -ef "$open" ] && return 0
+  archive="${terminal}.$(date -u +%Y%m%dT%H%M%SZ).$$.${RANDOM}${RANDOM}"
+  mv -n "$terminal" "$archive"
+  [ ! -e "$terminal" ] && [ -e "$archive" ] \
+    || { echo "session-guard: прошлый '$terminal' не удалось перенести в архив" >&2; return 1; }
+  echo "housekeeping: previous $(basename "$terminal") archived as $(basename "$archive")" >&2
+}
+
 _gb_main() {
-  local cmd="${1:-}" agent="${IWE_AGENT:-}" housekeeping="" slug="" path="" personality="" owner_pid=""
+  local cmd="${1:-}" agent="${IWE_AGENT:-}" housekeeping="" slug="" path="" personality="" owner_pid="" only_own_harness=0
   shift || true
   case "$cmd" in
     open|close|note-file) ;;
@@ -105,6 +142,7 @@ _gb_main() {
       --slug) slug="${2:-}"; shift 2 || _gb_refuse "$cmd" ;;
       --personality) personality="${2:-}"; shift 2 || _gb_refuse "$cmd" ;;
       --owner-pid) owner_pid="${2:-}"; shift 2 || _gb_refuse "$cmd" ;;
+      --only-own-harness) [ "$cmd" = close ] || _gb_refuse "$cmd $1"; only_own_harness=1; shift ;;
       --*) _gb_refuse "$cmd $1" ;;
       *) [ -z "$path" ] || _gb_refuse "$cmd"; path="$1"; shift ;;
     esac
@@ -149,10 +187,12 @@ _gb_main() {
           echo "session-guard: open --housekeeping: уже есть активная housekeeping-сессия '$reason' (возраст ${age}s). Закрой её или дождись TTL 1800s" >&2
           exit 1
         fi
+        _gb_archive_previous "${file}.stale" "$file" || exit 1
         [ ! -e "${file}.stale" ] || { echo "session-guard: open --housekeeping: .stale destination collision; существующий open сохранён" >&2; exit 1; }
         mv "$file" "${file}.stale"
         echo "WARNING: housekeeping semaphore '$reason' stale (${age}s), renamed to .stale" >&2
       fi
+      _gb_archive_previous "${file}.closed" "$file" || exit 1
       tmp="$(mktemp "$dir/.session-open.XXXXXX")"
       {
         echo "---"
@@ -163,7 +203,10 @@ _gb_main() {
         echo "session_id: $session_id"
         echo "created_at: $now"
         [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] && echo "harness_session_id: $CLAUDE_CODE_SESSION_ID"
-        echo "pid: ${owner_pid:-${CLAUDE_PID:-$$}}"
+        _hk_open_pid="${owner_pid:-${CLAUDE_PID:-$$}}"
+        echo "pid: $_hk_open_pid"
+        _hk_open_pid_start_id=$(_owner_pid_start_id "$_hk_open_pid")
+        [ -n "$_hk_open_pid_start_id" ] && echo "pid_start_id: $_hk_open_pid_start_id"
         echo "---"
       } > "$tmp"
       # No-clobber: the full implementation uses another lock, so under WSL2 and
@@ -179,6 +222,11 @@ _gb_main() {
     close)
       [ -f "$file" ] || { echo "session-guard: close --housekeeping: нет активной housekeeping-сессии '$reason' для $agent" >&2; exit 3; }
       _gb_semaphore_trusted "$file" "$agent" "$session_id" || { echo "session-guard: close --housekeeping: семафор не прошёл проверку подлинности" >&2; exit 1; }
+      # issue #1506: checked under the lock, so a marker swapped in after the caller's check is not closed.
+      if [ "$only_own_harness" = 1 ] && ! { [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] && grep -qxF "harness_session_id: $CLAUDE_CODE_SESSION_ID" "$file"; }; then
+        echo "session-guard: close --housekeeping: отметку '$reason' открыл другой разговор; не трогаю" >&2; exit 3
+      fi
+      _gb_archive_previous "${file}.closed" "$file" || exit 1
       [ ! -e "${file}.closed" ] || { echo "session-guard: close --housekeeping: terminal destination занят; open сохранён" >&2; exit 1; }
       grep -q '^close_protocol: ' "$file" && { echo "session-guard: close --housekeeping: закрытие уже начато другой реализацией; завершите его там (WSL2)" >&2; exit 1; }
       { echo "close_protocol: degraded-gitbash-v1"; echo "closed_at: $now"; } >> "$file"
@@ -248,6 +296,15 @@ now_date() { date +"%Y-%m-%d"; }
 now_month() { date +"%Y-%m"; }
 fail() { echo "session-guard: $1" >&2; exit "${2:-1}"; }
 
+# Read-only: where this guard appends the history of session opens. Readers
+# such as dt-collect.sh ask here instead of hardcoding a path, so they stay
+# correct whichever guard they run next to (WP-529 F248).
+if [ "$CMD" = "open-log-path" ]; then
+  [ $# -eq 0 ] || fail "open-log-path: no arguments accepted" 1
+  printf '%s\n' "$OPEN_LOG"
+  exit 0
+fi
+
 # WP-485 Phase 14 (a∩g): thin isolate helpers
 ISOLATE_LOCK_DIR="$IWE_ROOT/.iwe-runtime/isolate-locks"
 ISOLATE_LOCK_TTL_SEC="${IWE_ISOLATE_LOCK_TTL_SEC:-120}"
@@ -257,6 +314,7 @@ if [ -f "$_SG_ISOLATE_LIB" ]; then
   # shellcheck source=lib/session-guard-isolate-lib.sh
   . "$_SG_ISOLATE_LIB"
 fi
+
 # issue #954: shared reader of WP numbers; the hypothesis gate in `open` finds the card by
 # the normalised number. The same lookup block as in the other consumers, but OPTIONAL here
 # (_WPN_OPTIONAL=1): a session must still open on an installation without the library, the
@@ -414,9 +472,13 @@ frozen_checkout_match() {
 }
 
 resolve_isolate_push_script() {
+  # issue #1578: the template ships isolate-push.sh next to this script
+  # (FMT-exocortex-template/scripts/), which neither of the first two
+  # locations covers on a stock install, so close left every isolated copy behind.
   local candidates=(
     "$IWE_ROOT/$GOV_REPO/scripts/isolate-push.sh"
     "$IWE_ROOT/scripts/isolate-push.sh"
+    "$(dirname "$SESSION_GUARD_SELF")/isolate-push.sh"
   )
   local c
   for c in "${candidates[@]}"; do
@@ -946,34 +1008,6 @@ finally:
 PY
 }
 
-_retire_housekeeping_tombstone() { # <open path without .open> <.closed|.stale>
-  # A housekeeping close hardlinks <name>.open to <name>.open.closed and unlinks
-  # the .open; a stale open is moved to <name>.open.stale. Both tombstones stay on
-  # disk. The names of housekeeping semaphores are fixed (one per agent + reason),
-  # so the next cycle starts with a foreign ­.closed / .stale next to its fresh
-  # .open. The .closed one then fails both _locked_open_identity (closed_info
-  # exists with a different inode) and the terminal hardlink in
-  # _terminal_close_no_clobber ("already exists with different content"), so the
-  # semaphore can never be closed again; the .stale one makes the stale-open
-  # rename collide ("terminal destination collision"). Observed 25.11.2026 on
-  # deepseek-housekeeping-day-{open,close}: leftovers dated 11.11, 22.11 and 24.11
-  # blocked the 25.11 close.
-  # Starting a new cycle is the moment the old tombstones stop being relevant:
-  # retire them under the transition lock, keeping them on disk as history (same
-  # shape as the manually rotated .closed.<stamp>.<suffix> files already present).
-  local base="$1" suffix="$2" stamp candidate n=1
-  stamp=$(date -u +%Y%m%dT%H%M%SZ)
-  candidate="${base}${suffix}.${stamp}.cycle-retired"
-  while [ -e "$candidate" ]; do
-    n=$((n + 1))
-    candidate="${base}${suffix}.${stamp}.${n}.cycle-retired"
-  done
-  mv -n "${base}${suffix}" "$candidate" || return 1
-  [ ! -e "${base}${suffix}" ] || return 1
-  echo "session-guard: tombstone $(basename "$base")${suffix} retired as $(basename "$candidate")" >&2
-  return 0
-}
-
 _terminal_move_no_clobber() { # <source> <terminal destination>
   python3 - "$1" "$2" <<'PY'
 import os
@@ -1024,6 +1058,85 @@ try:
         os.close(directory)
 finally:
     os.close(source)
+PY
+}
+
+_archive_previous_terminal() { # <terminal path> <its .open path>
+  # Issue #1419: a housekeeping semaphore keeps the same name on every open, so
+  # the .closed/.stale left by an earlier run blocks this run's close and stale
+  # rename. Move such a leftover to a unique archive name. A terminal file that
+  # shares the inode with the live .open is this run's own staged close: kept.
+  # Runs under the caller's transition lock.
+  python3 - "$1" "$2" <<'PY'
+import datetime
+import os
+import stat
+import sys
+import uuid
+
+terminal_path, open_path = sys.argv[1:]
+try:
+    terminal = os.lstat(terminal_path)
+except FileNotFoundError:
+    raise SystemExit(0)
+if (
+    not stat.S_ISREG(terminal.st_mode)
+    or terminal.st_uid != os.getuid()
+    or stat.S_IMODE(terminal.st_mode) & 0o022
+):
+    raise SystemExit("previous terminal file is not trusted")
+try:
+    live = os.lstat(open_path)
+except FileNotFoundError:
+    live = None
+if live is not None and (live.st_dev, live.st_ino) == (terminal.st_dev, terminal.st_ino):
+    raise SystemExit(0)
+
+dirname = os.path.dirname(terminal_path)
+terminal_name = os.path.basename(terminal_path)
+family = os.path.basename(open_path) + "."
+# Extra links are trusted only when every name of the inode belongs to this
+# semaphore: an interrupted archive (<terminal>.<stamp>.<id>) or a half-done
+# close later renamed to .stale (.closed and .stale share the inode).
+siblings = []
+for name in os.listdir(dirname):
+    if name == terminal_name or not name.startswith(family):
+        continue
+    try:
+        other = os.lstat(os.path.join(dirname, name))
+    except FileNotFoundError:
+        continue
+    if (other.st_dev, other.st_ino) == (terminal.st_dev, terminal.st_ino):
+        siblings.append(name)
+if terminal.st_nlink != 1 + len(siblings):
+    raise SystemExit("previous terminal file has links outside this semaphore")
+
+
+def fsync_dir():
+    directory = os.open(dirname, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+if any(name.startswith(terminal_name + ".") for name in siblings):
+    # A previous archive of this very file stopped before the unlink: finish it.
+    os.unlink(terminal_path)
+    fsync_dir()
+    raise SystemExit(0)
+stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+archive_path = f"{terminal_path}.{stamp}.{uuid.uuid4().hex[:12]}"
+# os.link refuses an existing name: the archive name is never overwritten.
+os.link(terminal_path, archive_path, follow_symlinks=False)
+fsync_dir()
+current = os.lstat(terminal_path)
+if (current.st_dev, current.st_ino) != (terminal.st_dev, terminal.st_ino):
+    os.unlink(archive_path)
+    raise SystemExit("previous terminal name changed during archive")
+os.unlink(terminal_path)
+fsync_dir()
+print(f"housekeeping: previous {terminal_name} archived as {os.path.basename(archive_path)}", file=sys.stderr)
 PY
 }
 
@@ -1336,6 +1449,40 @@ orz_agent_name() {
 #   1 — no open semaphore at all for this agent
 #   2 — ambiguous or requested --wp/--slug matched nothing; candidate list
 #       already printed to stderr, caller should just propagate a failure
+# WP-484 Ф301 (И-11), adapted from the author's source 11.11: a second live semaphore
+# for the same work in the same conversation is how a session ends up with a mark
+# nobody closes. Opening stays allowed (the peer skill legitimately opens its own
+# after the WP Gate); the sibling is named at open, not discovered later. Only the
+# harness conversation id can tell "same conversation", so without it nothing is said.
+_wp_key() { # <wp> — comparable form: WP-44, 044 and 44 name one card
+  local n
+  if type wp_num_normalize >/dev/null 2>&1 && n=$(wp_num_normalize "$1" 2>/dev/null) && [ -n "$n" ]; then
+    printf '%s\n' "$n"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
+warn_sibling_semaphores() { # <agent> <wp> <slug> <own .open path>
+  local agent="$1" wp_key slug="$3" own="$4" file other_wp other_slug
+  [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] || return 0
+  wp_key=$(_wp_key "$2")
+  # Same agent only: `close --slug` selects among this agent's semaphores, so the
+  # printed exit must address one of them.
+  for file in "$SESSION_DIR/$agent"-*.open; do
+    [ -f "$file" ] && [ "$file" != "$own" ] || continue
+    grep -qxF "harness_session_id: $CLAUDE_CODE_SESSION_ID" "$file" || continue
+    # Housekeeping semaphores carry no wp: line; a file may vanish between reads.
+    # Under `set -euo pipefail` a failed read must skip the file, not abort open.
+    other_wp=$(grep -m1 '^wp: ' "$file" | cut -d' ' -f2-) || continue
+    [ -n "$other_wp" ] && [ "$(_wp_key "$other_wp")" = "$wp_key" ] || continue
+    other_slug=$(grep -m1 '^slug: ' "$file" | cut -d' ' -f2-) || continue
+    [ -n "$other_slug" ] && [ "$other_slug" != "$slug" ] || continue
+    printf "open: ПРЕДУПРЕЖДЕНИЕ: в этой беседе на тот же РП уже есть живая отметка '%s' (%s). Когда её работа закончена, закрой её: session-guard.sh close --agent %q --slug %q\n" \
+      "$other_slug" "$(basename "$file")" "$agent" "$other_slug" >&2
+  done
+}
+
 list_candidates() { # list_candidates <agent> — one path per line, newest first
   ls -t "$SESSION_DIR/${1}"-*.open 2>/dev/null || true
 }
@@ -1479,6 +1626,7 @@ ISOLATED_WORKTREE_BRANCH=""
 FORCE_FLAG=0
 UNFREEZE_REASON=""
 CANONICAL_OWNER=""
+ONLY_OWN_HARNESS=0
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -1493,6 +1641,7 @@ while [[ $# -gt 0 ]]; do
     --reason) UNFREEZE_REASON="$2"; shift 2 ;;
     --canonical-owner) CANONICAL_OWNER="$2"; shift 2 ;;
     --housekeeping) HOUSEKEEPING="$2"; shift 2 ;;
+    --only-own-harness) ONLY_OWN_HARNESS=1; shift ;;
     --personality) PERSONALITY="$2"; shift 2 ;;
     --session-id) SESSION_ID_ARG="$2"; shift 2 ;;
     --owner-pid) OWNER_PID="$2"; shift 2 ;;
@@ -1526,6 +1675,17 @@ if [ "$CMD" = "__quarantine-dead" ]; then
   _safe_session_token "$QUARANTINE_AGENT" || fail "internal quarantine: invalid agent identity" 1
   _safe_session_token "$QUARANTINE_SESSION" || fail "internal quarantine: no exact session identity" 1
   _ensure_session_transition_lock "$QUARANTINE_SEM" "$QUARANTINE_SESSION"
+  # Issue #1461: a housekeeping open made before the #1419 fix can sit next to
+  # an earlier run's .closed, which makes the identity check below refuse
+  # forever. Archive that leftover first, but only for a housekeeping
+  # semaphore whose file name (already confined to SESSION_DIR above) is
+  # exactly the one open --housekeeping builds for this agent and session:
+  # no other session's terminal file is moved.
+  if [[ "$QUARANTINE_SESSION" == housekeeping-* ]] \
+    && [ "$(basename "$QUARANTINE_SEM")" = "${QUARANTINE_AGENT}-${QUARANTINE_SESSION}.open" ]; then
+    _archive_previous_terminal "${QUARANTINE_SEM}.closed" "$QUARANTINE_SEM" \
+      || fail "internal quarantine: previous .closed could not be archived" 1
+  fi
   _locked_open_identity "$QUARANTINE_SEM" "$QUARANTINE_AGENT" "$QUARANTINE_SESSION" 0 \
     || fail "internal quarantine: identity changed or close already staged" 1
   [ "$(grep '^pid: ' "$QUARANTINE_SEM" | head -1 | cut -d' ' -f2- || true)" = "$QUARANTINE_PID" ] \
@@ -1568,15 +1728,6 @@ if [ "$CMD" = "open" ]; then
     HK_SESSION_ID="housekeeping-${HOUSEKEEPING}"
     _safe_session_token "$HK_SESSION_ID" || fail "open --housekeeping: идентификатор слишком длинный" 1
     _ensure_session_transition_lock "$HK_FILE" "$HK_SESSION_ID"
-    # Retire the tombstones of the previous cycle of this fixed (agent, reason)
-    # name before the fresh .open appears; otherwise this cycle's close (or the
-    # stale-open rename just below) inherits a collision it cannot resolve.
-    for HK_TOMBSTONE in .closed .stale; do
-      if [ -e "${HK_FILE}${HK_TOMBSTONE}" ]; then
-        _retire_housekeeping_tombstone "$HK_FILE" "$HK_TOMBSTONE" \
-          || fail "open --housekeeping: устаревшую квитанцию ${HK_FILE}${HK_TOMBSTONE} сдвинуть не удалось; новый open не создан" 1
-      fi
-    done
     HK_MAX_AGE=1800  # 30 minutes default TTL for housekeeping semaphores
     NOW_EPOCH=$(date +%s)
     if [ -f "$HK_FILE" ]; then
@@ -1586,6 +1737,8 @@ if [ "$CMD" = "open" ]; then
         if [ -n "$HK_CREATED_EPOCH" ]; then
           HK_AGE=$(( NOW_EPOCH - HK_CREATED_EPOCH ))
           if [ "$HK_AGE" -gt "$HK_MAX_AGE" ]; then
+            _archive_previous_terminal "${HK_FILE}.stale" "$HK_FILE" \
+              || fail "open --housekeeping: прошлый .stale не удалось перенести в архив; существующий open сохранён" 1
             _terminal_move_no_clobber "$HK_FILE" "${HK_FILE}.stale" \
               || fail "open --housekeeping: .stale destination collision; существующий open сохранён" 1
             rm -f "${HK_FILE}.lease"
@@ -1596,6 +1749,8 @@ if [ "$CMD" = "open" ]; then
         fi
       fi
     fi
+    _archive_previous_terminal "${HK_FILE}.closed" "$HK_FILE" \
+      || fail "open --housekeeping: прошлый .closed не удалось перенести в архив" 1
     HK_TMP=$(mktemp "$SESSION_DIR/.session-open.XXXXXX")
     chmod 600 "$HK_TMP"
     {
@@ -1636,7 +1791,10 @@ if [ "$CMD" = "open" ]; then
       # Code process that stays alive for the whole session; other agents keep
       # today's behavior (transient $$, harmless — dead-pid check just never
       # fires for them, same as before this fix).
-      echo "pid: ${OWNER_PID:-${CLAUDE_PID:-$$}}"
+      _hk2_open_pid="${OWNER_PID:-${CLAUDE_PID:-$$}}"
+      echo "pid: $_hk2_open_pid"
+      _hk2_open_pid_start_id=$(_owner_pid_start_id "$_hk2_open_pid")
+      [ -n "$_hk2_open_pid_start_id" ] && echo "pid_start_id: $_hk2_open_pid_start_id"
       echo "---"
     } > "$HK_TMP"
     _publish_open_no_clobber "$HK_TMP" "$HK_FILE" \
@@ -1738,8 +1896,15 @@ if [ "$CMD" = "open" ]; then
       if lease_valid "$STALE"; then
         echo "NOTE: у агента открыта долгая сессия $(basename "$STALE") (WP: $STALE_WP, возраст ${STALE_AGE}s) — права на коммит действуют, не трогаю" >&2
       else
+        STALE_HK=$(grep "^housekeeping: " "$STALE" | cut -d' ' -f2- || true)
         echo "WARNING: сессия $(basename "$STALE") (WP: $STALE_WP, возраст ${STALE_AGE}s) потеряла права на коммит." >&2
-        echo "         Закрой её (close --wp $STALE_WP) или продли: renew --wp $STALE_WP" >&2
+        if [ -n "$STALE_HK" ]; then
+          # issue #1506: a housekeeping semaphore has no wp, so "close --wp unknown"
+          # cannot close it; point at the command that does.
+          echo "         Закрой её: close --housekeeping $STALE_HK --agent $AGENT" >&2
+        else
+          echo "         Закрой её (close --wp $STALE_WP) или продли: renew --wp $STALE_WP" >&2
+        fi
       fi
     fi
   done < <(ls -t "$SESSION_DIR/${AGENT}"-*.open 2>/dev/null || true)
@@ -1763,6 +1928,7 @@ if [ "$CMD" = "open" ]; then
       -name "$(basename "$SEM_FILE").*" -print -quit 2>/dev/null | grep -q .; then
     fail "open: для exact session_id '$SESSION_ID' уже есть terminal/lease state; выбери новый идентификатор" 1
   fi
+  warn_sibling_semaphores "$AGENT" "$WP" "${SLUG:-$WP}" "$SEM_FILE"
   # WP-484 (31.07, data-pipeline-audit-2026-07-30.md §3.3): a caller-supplied slug
   # sometimes already carries today's date (Kimi free-text `--slug`, human habit) —
   # confirmed live on real files, e.g. sessions/2026-07/2026-07-31-2026-07-31-wp510-*.md.
@@ -1836,9 +2002,23 @@ if [ "$CMD" = "open" ]; then
     [ -f "$ISOLATE_EXISTING_SEM" ] && ISOLATE_SEM_EXISTS=1 || ISOLATE_SEM_EXISTS=0
 
     # Dirty policy: first open on frozen path = advisory; re-entry = allowlist only
+    # issue #1572: update.sh/setup.sh keep their own records in the workspace root
+    # (.claude.md.base, .claude.md.delivered, .memory-deployed.tsv). They must stay
+    # there (the next update reads them) and the platform does not own the root's
+    # .gitignore, so an untracked copy of exactly these files in the workspace root
+    # is not "uncommitted work" and must not block --isolate.
+    ISOLATE_ON_WORKSPACE_ROOT=0
+    if [ "$(realpath "$ISOLATE_BASE_DIR" 2>/dev/null || echo "$ISOLATE_BASE_DIR")" = "$(realpath "$IWE_ROOT" 2>/dev/null || echo "$IWE_ROOT")" ]; then
+      ISOLATE_ON_WORKSPACE_ROOT=1
+    fi
     ISOLATE_DIRTY_ENTRIES=()
     while IFS= read -r -d '' isolate_status_entry; do
       [ -n "$isolate_status_entry" ] || continue
+      if [ "$ISOLATE_ON_WORKSPACE_ROOT" = "1" ]; then
+        case "$isolate_status_entry" in
+          '?? .claude.md.base'|'?? .claude.md.delivered'|'?? .memory-deployed.tsv') continue ;;
+        esac
+      fi
       ISOLATE_DIRTY_ENTRIES+=("$isolate_status_entry")
     done < <(git -C "$ISOLATE_BASE_DIR" status --porcelain -z --untracked-files=all 2>/dev/null)
     if [ "${#ISOLATE_DIRTY_ENTRIES[@]}" -gt 0 ]; then
@@ -1940,7 +2120,12 @@ if [ "$CMD" = "open" ]; then
   # scaffold. Redirect it into the isolated worktree so the allowlist
   # registration below (which keys off this same variable) and the actual
   # append target agree.
-  if [ "${ISOLATE_FLAG:-0}" = "1" ] && [ -n "${ISOLATED_WORKTREE_PATH:-}" ]; then
+  # issue #1577: only when the isolated worktree IS the governance repo. An
+  # isolate of another repo (the IWE root started from ~/IWE) has no inbox/:
+  # the line landed in an untracked file of that copy, never reached the
+  # governance log, and later blocked `git worktree remove`.
+  if [ "${ISOLATE_FLAG:-0}" = "1" ] && [ -n "${ISOLATED_WORKTREE_PATH:-}" ] \
+     && same_git_repo "$ISOLATE_BASE_DIR" "$IWE_ROOT/$GOV_REPO"; then
     OPEN_LOG="$ISOLATED_WORKTREE_PATH/inbox/open-sessions.log"
     mkdir -p "$(dirname "$OPEN_LOG")"
   fi
@@ -2000,10 +2185,17 @@ if [ "$CMD" = "open" ]; then
     # this script returns (verified live: recorded pid was dead within the
     # same second). Other agents get no pid line, same as before this fix —
     # strictly not worse, dead-pid check simply still can't fire for them.
+    _open_pid=""
     if [ -n "$OWNER_PID" ]; then
       echo "pid: $OWNER_PID"
+      _open_pid="$OWNER_PID"
     elif [ -n "${CLAUDE_PID:-}" ]; then
       echo "pid: $CLAUDE_PID"
+      _open_pid="$CLAUDE_PID"
+    fi
+    if [ -n "$_open_pid" ]; then
+      _open_pid_start_id=$(_owner_pid_start_id "$_open_pid")
+      [ -n "$_open_pid_start_id" ] && echo "pid_start_id: $_open_pid_start_id"
     fi
     echo "---"
     # initial --files CSV → append-log entries (git-root-relative expected from caller)
@@ -2292,15 +2484,19 @@ if [ "$CMD" = "close" ]; then
       fail "close --housekeeping: нет активной housekeeping-сессии '${HOUSEKEEPING}' для $AGENT" 3
     fi
     _ensure_session_transition_lock "$HK_FILE" "$HK_SESSION_ID"
-    # A .closed next to an open that carries no staged receipt cannot belong to
-    # this open: it is the tombstone of a previous cycle of the same fixed
-    # (agent, reason) name (bug 25.11.2026). Retire it instead of failing —
-    # otherwise the terminal hardlink below refuses the close forever and, while
-    # the open is younger than the TTL, `open` cannot retire it either.
-    if [ -e "${HK_FILE}.closed" ] && ! grep -q '^close_protocol: ' "$HK_FILE"; then
-      _retire_housekeeping_tombstone "$HK_FILE" .closed \
-        || fail "close --housekeeping: устаревшую квитанцию ${HK_FILE}.closed сдвинуть не удалось; open сохранён" 1
+    # Installations opened before the #1419 fix still hold an earlier run's
+    # .closed next to today's open; the helper keeps this run's own staged one.
+    # Identity first, so a foreign .open changes nothing.
+    grep -qx "agent: $AGENT" "$HK_FILE" && grep -qx "session_id: $HK_SESSION_ID" "$HK_FILE" \
+      || fail "close --housekeeping: exact identity/terminal state не прошли проверку" 1
+    # issue #1506: checked under the transition lock, so a marker swapped in
+    # after the caller's own check is not closed.
+    if [ "$ONLY_OWN_HARNESS" = 1 ] && ! { [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] \
+        && grep -qxF "harness_session_id: $CLAUDE_CODE_SESSION_ID" "$HK_FILE"; }; then
+      fail "close --housekeeping: отметку '${HOUSEKEEPING}' открыл другой разговор; не трогаю" 3
     fi
+    _archive_previous_terminal "${HK_FILE}.closed" "$HK_FILE" \
+      || fail "close --housekeeping: прошлый .closed не удалось перенести в архив; open сохранён" 1
     _locked_open_identity "$HK_FILE" "$AGENT" "$HK_SESSION_ID" 1 \
       || fail "close --housekeeping: exact identity/terminal state не прошли проверку" 1
     HK_CLOSE_ATTEMPT=$(_atomic_append_open "$HK_FILE" "$AGENT" "$HK_SESSION_ID" \
@@ -2498,13 +2694,18 @@ print(json.dumps({"wp": sys.argv[1], "slug": sys.argv[2], "agent": sys.argv[3], 
   if [ -n "$ISOLATE_WT" ] && [ -d "$ISOLATE_WT" ]; then
     if PUSH_BIN=$(resolve_isolate_push_script); then
       echo "session-guard: close: isolate-push через $PUSH_BIN" >&2
-      if ! bash "$PUSH_BIN" "$ISOLATE_WT" main; then
+      # The same target open isolated from: origin's default branch, `main`
+      # only when origin/HEAD is unknown. A hard-coded `main` never delivered
+      # a repo whose default branch is named otherwise.
+      ISOLATE_TARGET_BRANCH="$(git -C "$ISOLATE_WT" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's#^refs/remotes/origin/##' || true)"
+      ISOLATE_TARGET_BRANCH="${ISOLATE_TARGET_BRANCH:-main}"
+      if ! IWE_GOVERNANCE_REPO="$GOV_REPO" bash "$PUSH_BIN" "$ISOLATE_WT" "$ISOLATE_TARGET_BRANCH"; then
         echo "⚠️  isolate-push не завершился успешно — worktree оставлен: $ISOLATE_WT" >&2
       else
         git -C "$(git -C "$ISOLATE_WT" rev-parse --git-common-dir 2>/dev/null | sed "s|/.git$||;s|/$||" || true)" worktree remove --force "$ISOLATE_WT" 2>/dev/null           || git worktree remove --force "$ISOLATE_WT" 2>/dev/null           || echo "⚠️  не удалось удалить isolate worktree $ISOLATE_WT" >&2
       fi
     else
-      echo "⚠️  isolate-push.sh не найден ($GOV_REPO/scripts или $IWE_ROOT/scripts) — worktree оставлен: $ISOLATE_WT" >&2
+      echo "⚠️  isolate-push.sh не найден ($GOV_REPO/scripts, $IWE_ROOT/scripts или $(dirname "$SESSION_GUARD_SELF")) — worktree оставлен: $ISOLATE_WT" >&2
     fi
   fi
 

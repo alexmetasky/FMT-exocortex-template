@@ -92,7 +92,7 @@ fi
 <!-- Детали: day-close-details.md § Шаг 4в -->
 
 ### 4. Lesson Hygiene
-`IWE_PATHS="${IWE_PATHS_FILE:-}"; if [ -z "$IWE_PATHS" ]; then for _c in "$PWD/.iwe-paths" "${IWE_WORKSPACE:-$HOME/IWE}/.iwe-paths" "$HOME/.iwe-paths"; do [ -r "$_c" ] && { IWE_PATHS="$_c"; break; }; done; fi; [ -n "$IWE_PATHS" ] && . "$IWE_PATHS" 2>/dev/null; T="${IWE_TEMPLATE:-$HOME/IWE/FMT-exocortex-template}"; bash "$T/scripts/memory-bleed.sh" --hot-only` — HOT-лимит памяти (issue #1314: прежний текст ссылался на несуществующую секцию «Уроки» в MEMORY.md и на `lessons_*.md` по имени файла; современная схема — frontmatter `type`/`horizon`/`status`, `memory/memory-lifecycle-spec.md`). Превышен → перевести часть файлов из `horizon: hot` в `warm` до коммита. Полный скан дормантных кандидатов (HOT→WARM/WARM→COLD/COLD→archive) — не здесь, это уже делают Week Close §7d и Month Close §1f на своей каденции.
+`IWE_PATHS="${IWE_PATHS_FILE:-}"; if [ -z "$IWE_PATHS" ]; then for _c in "$PWD/.iwe-paths" "${IWE_WORKSPACE:-$HOME/IWE}/.iwe-paths" "$HOME/.iwe-paths"; do [ -r "$_c" ] && { IWE_PATHS="$_c"; break; }; done; fi; [ -n "$IWE_PATHS" ] && . "$IWE_PATHS" 2>/dev/null; bash "$IWE_SCRIPTS/memory-bleed.sh" --hot-only` — HOT-лимит памяти (issue #1314: прежний текст ссылался на несуществующую секцию «Уроки» в MEMORY.md и на `lessons_*.md` по имени файла; современная схема — frontmatter `type`/`horizon`/`status`, `memory/memory-lifecycle-spec.md`). Превышен → перевести часть файлов из `horizon: hot` в `warm` до коммита. Полный скан дормантных кандидатов (HOT→WARM/WARM→COLD/COLD→archive) — не здесь, это уже делают Week Close §7d и Month Close §1f на своей каденции.
 
 ### 5. Автоматические шаги
 `IWE_PATHS="${IWE_PATHS_FILE:-}"; if [ -z "$IWE_PATHS" ]; then for _c in "$PWD/.iwe-paths" "${IWE_WORKSPACE:-$HOME/IWE}/.iwe-paths" "$HOME/.iwe-paths"; do [ -r "$_c" ] && { IWE_PATHS="$_c"; break; }; done; fi; [ -n "$IWE_PATHS" ] && . "$IWE_PATHS" 2>/dev/null; "$IWE_SCRIPTS/day-close.sh"` — источник переменных явный (issue #688, см. шаг 0б), Linear sync, backup (memory/ + CLAUDE.md), reindex, консолидация сессий дня. Обновление платформы (`update.sh`) сюда НЕ входит (issue #945): это сетевая операция со своим ритуалом; о доступном обновлении сообщает таблица состояния IWE при Day Open (`update.sh --check --fast`), применяется отдельно (`/iwe-update`).
@@ -164,6 +164,14 @@ jq -n \
   > ~/.claude/state/day-close-last-success.json
 ```
 
+### 10d. Снять служебную отметку шага 0г (issue #1506)
+После push шага 10b коммитов в этом протоколе больше нет. Отметка `day-close` этого агента, открытая на шаге 0г, иначе остаётся в `.iwe-runtime/sessions/`, и следующее `session-guard.sh open` предупреждает о сессии без прав на коммит. Закрывается только отметка, записанная этим же разговором (строка `harness_session_id` совпадает; `--only-own-harness` сверяет её внутри `session-guard.sh` под блокировкой, код 3 — отметка не наша), чтобы не снять отметку параллельной сессии того же агента. Нет отметки — команда ничего не делает; отметка чужая или нет номера разговора — `session-guard.sh` отказывает с кодом 3 и ничего не меняет:
+```bash
+AGENT="${IWE_AGENT:-claude-code}"
+HK_SEM="${IWE_ROOT:-$HOME/IWE}/.iwe-runtime/sessions/${AGENT}-housekeeping-day-close.open"
+[ ! -f "$HK_SEM" ] || bash "${IWE_SCRIPTS:-$HOME/IWE/scripts}/session-guard.sh" close --housekeeping day-close --agent "$AGENT" --only-own-harness
+```
+
 ### 11. Верификация (Haiku R23)
 Sub-agent Haiku R23 (context isolation): передать чеклист + черновик итогов + список обновлённых файлов. По ❌ — исправить до показа пользователю.
 
@@ -192,7 +200,7 @@ Sub-agent Haiku R23 (context isolation): передать чеклист + че�
 - [ ] Видео: обработанные помечены (если video.enabled)
 - [ ] Governance: REPOSITORY-REGISTRY, navigation.md, MAP.002
 - [ ] Backup: `day-close.sh` выполнен
-- [ ] **Rule-engine FP-stats** (WP-272 Ф2.5): `[ -f ${IWE_WORKSPACE:-$HOME/IWE}/.claude/scripts/fp-stats.py ] && python3 ${IWE_WORKSPACE:-$HOME/IWE}/.claude/scripts/fp-stats.py --date $(date +%Y-%m-%d) || echo "skip: fp-stats.py требует rule-classifier.py"` → если есть `⚠️ REVISE` → **спросить пилота по факту флага** (WP-545 Ф5, 21.08 — заменяет прежний еженедельный R8-вопрос, который спрашивал вслепую по расписанию, не по конкретному сигналу): «правило `<X>` — это ложные срабатывания детектора, или реальный, но неудобный сигнал?» Ответ → в «Завтра начать с» вместе с решением (переформулировать правило / оставить как есть)
+- [ ] **Rule-engine FP-stats** (WP-272 Ф2.5): `[ -f ${IWE_WORKSPACE:-$HOME/IWE}/.claude/scripts/fp-stats.py ] && python3 ${IWE_WORKSPACE:-$HOME/IWE}/.claude/scripts/fp-stats.py --date $(date +%Y-%m-%d) || echo "skip: fp-stats.py не найден (rule-classifier.py для него не нужен)"` → если есть `⚠️ REVISE` → **спросить пилота по факту флага** (WP-545 Ф5, 21.08 — заменяет прежний еженедельный R8-вопрос, который спрашивал вслепую по расписанию, не по конкретному сигналу): «правило `<X>` — это ложные срабатывания детектора, или реальный, но неудобный сигнал?» Ответ → в «Завтра начать с» вместе с решением (переформулировать правило / оставить как есть)
 - [ ] Верификация compliance: /verify запускался сегодня?
 - [ ] WakaTime + Мультипликатор: часы / бюджет ПО ФАКТУ (sessions/00-index.md перечислен; ad-hoc оценены по ходам; сверхплановое — по факту); sanity check ≥10 peer-сессий
 - [ ] Итоги дня записаны в DayPlan **(postcondition 9a: grep подтверждён)** — **N/A на strategy_day** (шаг 0в)
